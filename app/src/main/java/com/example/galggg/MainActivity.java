@@ -1,4 +1,4 @@
-﻿package com.example.galggg;
+package com.example.galggg;
 
 import android.Manifest;
 import android.content.ContentUris;
