@@ -3,10 +3,6 @@ plugins {
 }
 
 android {
-    buildFeatures {
-        buildConfig true
-    }
-
     namespace "com.example.galggg"
     compileSdk 34
 
@@ -24,6 +20,8 @@ android {
         buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
         buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
     }
+
+    buildFeatures { buildConfig true }
 
     buildTypes {
         release {

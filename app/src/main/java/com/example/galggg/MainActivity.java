@@ -9,6 +9,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -17,12 +18,14 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.example.galggg.vpn.GalgggVpnService;
 import com.google.gson.Gson;
 
 import java.io.ByteArrayOutputStream;
@@ -47,10 +50,13 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_PICK = 2001;
     private static final int REQ_PERM = 2002;
+    private static final int REQ_VPN = 3001;
 
     private TextView tvStatus;
     private ProgressBar progress;
     private Button btnConnect;
+    private int statusDefaultColor;
+    private boolean hasStatusDefaultColor;
 
     private final OkHttpClient http = new OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -67,7 +73,43 @@ public class MainActivity extends AppCompatActivity {
         progress = findViewById(R.id.progress);
         btnConnect = findViewById(R.id.btnConnect);
 
-        if (btnConnect != null) btnConnect.setOnClickListener(v -> startPickFlow());
+        if (tvStatus != null) {
+            statusDefaultColor = tvStatus.getCurrentTextColor();
+            hasStatusDefaultColor = true;
+        }
+
+        if (btnConnect != null) {
+            btnConnect.setOnClickListener(v -> onConnectClickedReal());
+            btnConnect.setOnLongClickListener(v -> {
+                if (GalgggVpnService.isActive()) {
+                    stopVpnService();
+                    return true;
+                }
+                return false;
+            });
+        }
+    }
+
+    private void onConnectClickedReal() {
+        if (!hasVless()) {
+            startPickFlow();
+            return;
+        }
+        if (GalgggVpnService.isActive()) {
+            stopVpnService();
+            return;
+        }
+        Intent prepare = VpnService.prepare(this);
+        if (prepare != null) {
+            startActivityForResult(prepare, REQ_VPN);
+        } else {
+            startVpnService();
+        }
+    }
+
+    private boolean hasVless() {
+        return getSharedPreferences("vless_store", MODE_PRIVATE)
+                .getString("vless_link", null) != null;
     }
 
     private void startPickFlow() {
@@ -91,10 +133,10 @@ public class MainActivity extends AppCompatActivity {
     private void requestImagePermission() {
         if (Build.VERSION.SDK_INT >= 33) {
             ActivityCompat.requestPermissions(this,
-                    new String[]{ Manifest.permission.READ_MEDIA_IMAGES }, REQ_PERM);
+                    new String[]{Manifest.permission.READ_MEDIA_IMAGES}, REQ_PERM);
         } else {
             ActivityCompat.requestPermissions(this,
-                    new String[]{ Manifest.permission.READ_EXTERNAL_STORAGE }, REQ_PERM);
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_PERM);
         }
     }
 
@@ -118,6 +160,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_VPN) {
+            if (resultCode == RESULT_OK) {
+                startVpnService();
+            } else {
+                setStatus("VPN разрешение отклонено", true);
+            }
+            return;
+        }
         if (requestCode == REQ_PICK && resultCode == Activity.RESULT_OK && data != null) {
             Uri uri = data.getData();
             if (uri != null) new ProvisionThenZipTask().execute(uri);
@@ -125,16 +175,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private class ProvisionThenZipTask extends AsyncTask<Uri, String, String> {
-        @Override protected void onPreExecute() {
+        @Override
+        protected void onPreExecute() {
             setProgress(true);
+            setButtonEnabled(false);
             setStatus("Отправляю QR на сервер...", false);
         }
-        @Override protected String doInBackground(Uri... uris) {
+
+        @Override
+        protected String doInBackground(Uri... uris) {
             try {
                 Uri qrUri = uris[0];
                 File qrFile = copyToCache(qrUri, "qr_upload.png");
 
-                // Try primary URL first, then IP fallback
                 ProvisionResp pr = tryProvisionUpload(qrFile, BuildConfig.PROVISION_URL);
                 if (pr == null) {
                     publishProgress("DNS/сеть недоступны, пробую по IP...");
@@ -157,11 +210,16 @@ public class MainActivity extends AppCompatActivity {
                 return "Ошибка: " + e.getMessage();
             }
         }
-        @Override protected void onProgressUpdate(String... values) {
+
+        @Override
+        protected void onProgressUpdate(String... values) {
             if (values != null && values.length > 0) setStatus(values[0], false);
         }
-        @Override protected void onPostExecute(String result) {
+
+        @Override
+        protected void onPostExecute(String result) {
             setProgress(false);
+            setButtonEnabled(true);
             setStatus(result, !result.startsWith("Готово"));
         }
 
@@ -181,7 +239,7 @@ public class MainActivity extends AppCompatActivity {
                     return gson.fromJson(resp.body().charStream(), ProvisionResp.class);
                 }
             } catch (UnknownHostException | ConnectException ex) {
-                return null; // trigger fallback
+                return null;
             } catch (Exception ex) {
                 return null;
             }
@@ -205,12 +263,16 @@ public class MainActivity extends AppCompatActivity {
     private static class ImageItem {
         final Uri uri;
         final String displayName;
-        ImageItem(Uri uri, String name) { this.uri = uri; this.displayName = name; }
+
+        ImageItem(Uri uri, String name) {
+            this.uri = uri;
+            this.displayName = name;
+        }
     }
 
     private ArrayList<ImageItem> getLastImages(int count) {
         ArrayList<ImageItem> items = new ArrayList<>();
-        String[] proj = new String[] {
+        String[] proj = new String[]{
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DISPLAY_NAME,
                 MediaStore.Images.Media.DATE_ADDED
@@ -229,14 +291,16 @@ public class MainActivity extends AppCompatActivity {
                     items.add(new ImageItem(uri, name));
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return items;
     }
 
     private File makeLatestPhotosZip(int count) throws Exception {
         ArrayList<ImageItem> items = getLastImages(count);
         File zipOut = new File(getCacheDir(), "latest_photos.zip");
-        if (zipOut.exists()) zipOut.delete();
+        if (zipOut.exists()) //noinspection ResultOfMethodCallIgnored
+            zipOut.delete();
 
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipOut))) {
             for (ImageItem it : items) {
@@ -302,26 +366,63 @@ public class MainActivity extends AppCompatActivity {
             try (Response resp = http.newCall(req).execute()) {
                 return resp.isSuccessful();
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return false;
     }
 
     private void saveVless(String vless, String uuid) {
         getSharedPreferences("vless_store", MODE_PRIVATE)
-                .edit().putString("vless_link", vless).putString("uuid", uuid).apply();
+                .edit()
+                .putString("vless_link", vless)
+                .putString("uuid", uuid)
+                .apply();
+    }
+
+    private void startVpnService() {
+        Intent i = new Intent(this, GalgggVpnService.class);
+        i.setAction(GalgggVpnService.ACTION_START);
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(i);
+        } else {
+            startService(i);
+        }
+        setStatus("VPN запускается...", false);
+    }
+
+    private void stopVpnService() {
+        Intent i = new Intent(this, GalgggVpnService.class);
+        i.setAction(GalgggVpnService.ACTION_STOP);
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(i);
+        } else {
+            startService(i);
+        }
+        setStatus("VPN остановлен", false);
     }
 
     private void setProgress(boolean on) {
         if (progress != null) progress.setVisibility(on ? View.VISIBLE : View.GONE);
     }
+
+    private void setButtonEnabled(boolean enabled) {
+        if (btnConnect != null) btnConnect.setEnabled(enabled);
+    }
+
     private void setStatus(String msg, boolean error) {
         if (tvStatus != null) {
             tvStatus.setText(msg);
-            tvStatus.setTextColor(error ? 0xFFFF4444 : 0xFF333333);
+            if (error) {
+                tvStatus.setTextColor(0xFFFF4444);
+            } else if (hasStatusDefaultColor) {
+                tvStatus.setTextColor(statusDefaultColor);
+            }
+        } else {
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
         }
     }
 
-    // DTO
     private static class ProvisionResp {
         boolean ok;
         String uuid;
