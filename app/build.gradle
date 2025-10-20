@@ -12,6 +12,11 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+
+        buildConfigField "String", "PROVISION_URL", "\"http://vpnonee.com:8081\""
+        buildConfigField "String", "PROVISION_TOKEN", "\"ptk_A3Rz5Zr86mYb-9wQ4pJc2Vt7Xg0La1Nf5Hh3Qk8R2sD6Ue0\""
+        buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
+        buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
     }
 
     buildTypes {
@@ -33,4 +38,5 @@ dependencies {
     implementation "com.google.android.material:material:1.12.0"
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "com.google.code.gson:gson:2.10.1"
 }
