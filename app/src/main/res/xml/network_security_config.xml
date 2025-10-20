@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- base allow (dev/prototype) -->
+    <base-config cleartextTrafficPermitted="true" />
+    <!-- explicit host for clarity -->
     <domain-config cleartextTrafficPermitted="true">
         <domain>vpnonee.com</domain>
     </domain-config>

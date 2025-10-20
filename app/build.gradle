@@ -2,8 +2,7 @@ plugins {
     id "com.android.application" version "8.6.1"
 }
 
-android
-{
+android {
     buildFeatures {
         buildConfig true
     }
@@ -18,7 +17,9 @@ android
         versionCode 1
         versionName "1.0"
 
+        buildConfigField "String", "PROVISION_HOST", "\"vpnonee.com\""
         buildConfigField "String", "PROVISION_URL", "\"http://vpnonee.com:8081\""
+        buildConfigField "String", "PROVISION_URL_IP", "\"http://89.23.123.2:8081\""
         buildConfigField "String", "PROVISION_TOKEN", "\"ptk_A3Rz5Zr86mYb-9wQ4pJc2Vt7Xg0La1Nf5Hh3Qk8R2sD6Ue0\""
         buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
         buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
