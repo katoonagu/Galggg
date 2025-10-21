@@ -1,7 +1,10 @@
 package com.example.galggg.vpn;
 
 import android.content.Context;
+import android.content.res.AssetManager;
 import android.os.Build;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -26,7 +29,74 @@ public class XrayRunner {
         this.ctx = c.getApplicationContext();
     }
 
-    public File ensureBin(String name) throws Exception {
+    // === NEW: safe chmod for dir and files (owner-only 0700) with fallbacks ===
+    private static void chmodExec(File dir, File... files) throws IOException {
+        if (dir != null) {
+            try {
+                Os.chmod(dir.getAbsolutePath(), 0700);
+            } catch (ErrnoException e) {
+                try {
+                    new ProcessBuilder("chmod", "700", dir.getAbsolutePath()).start().waitFor();
+                } catch (Exception ignore) {
+                }
+            }
+        }
+        for (File f : files) {
+            if (f == null) continue;
+            f.setExecutable(true, true);
+            f.setReadable(true, true);
+            f.setWritable(true, true);
+            try {
+                Os.chmod(f.getAbsolutePath(), 0700);
+            } catch (ErrnoException e) {
+                try {
+                    new ProcessBuilder("chmod", "700", f.getAbsolutePath()).start().waitFor();
+                } catch (Exception ignore) {
+                }
+            }
+            if (!f.canExecute()) {
+                Log.e(TAG, "binary still not executable after chmod: " + f);
+                throw new IOException("Not executable after chmod: " + f.getAbsolutePath());
+            }
+        }
+    }
+
+    // === NEW: copy asset to file (overwrites if content differs) ===
+    private static void copyAsset(AssetManager am, String assetPath, File out) throws IOException {
+        File parent = out.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Cannot mkdirs: " + parent);
+        }
+        try (InputStream in = am.open(assetPath);
+             FileOutputStream fos = new FileOutputStream(out, false)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                fos.write(buf, 0, n);
+            }
+            fos.getFD().sync();
+        }
+    }
+
+    // === NEW: stage binaries from assets into app-private bin dir and chmod ===
+    private static class StagePaths {
+        final File binDir;
+        final File xray;
+        final File t2s;
+
+        StagePaths(File binDir, File xray, File t2s) {
+            this.binDir = binDir;
+            this.xray = xray;
+            this.t2s = t2s;
+        }
+    }
+
+    private static StagePaths stageBinariesIfNeeded(Context ctx) throws IOException {
+        File binDir = new File(ctx.getFilesDir(), "bin");
+        if (!binDir.exists() && !binDir.mkdirs()) {
+            throw new IOException("Cannot create bin dir: " + binDir);
+        }
+
         String abi = (Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0)
                 ? Build.SUPPORTED_ABIS[0]
                 : Build.CPU_ABI;
@@ -39,39 +109,51 @@ public class XrayRunner {
         if (!"arm64-v8a".equals(abiDir) && !"x86_64".equals(abiDir)) {
             abiDir = (abi != null && abi.contains("arm")) ? "arm64-v8a" : "x86_64";
         }
+        String base = "bin/" + abiDir + "/";
 
-        File outDir = new File(ctx.getFilesDir(), "bin");
-        if (!outDir.exists() && !outDir.mkdirs()) {
-            throw new IOException("Failed to create bin directory");
+        File xrayFile = new File(binDir, "xray");
+        File t2sFile = new File(binDir, "tun2socks");
+
+        AssetManager am = ctx.getAssets();
+
+        if (!xrayFile.exists() || xrayFile.length() < 1024) {
+            Log.d(TAG, "staging xray from assets: " + base + "xray -> " + xrayFile);
+            copyAsset(am, base + "xray", xrayFile);
         }
-        File out = new File(outDir, name);
-        String assetPath = "bin/" + abiDir + "/" + name;
-
-        try (InputStream in = ctx.getAssets().open(assetPath);
-             FileOutputStream fos = new FileOutputStream(out, false)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) >= 0) {
-                fos.write(buf, 0, n);
-            }
-        }
-
-        // grant execute permissions for the copied binary
-        //noinspection ResultOfMethodCallIgnored
-        out.setReadable(true, false);
-        //noinspection ResultOfMethodCallIgnored
-        out.setExecutable(true, false);
-        //noinspection ResultOfMethodCallIgnored
-        out.setWritable(true, true);
-
-        if (isPlaceholder(out)) {
-            throw new IllegalStateException("Binary " + name + " is a placeholder; copy the real file into assets/bin/" + abiDir);
+        if (!t2sFile.exists() || t2sFile.length() < 1024) {
+            Log.d(TAG, "staging tun2socks from assets: " + base + "tun2socks -> " + t2sFile);
+            copyAsset(am, base + "tun2socks", t2sFile);
         }
 
-        return out;
+        chmodExec(binDir, xrayFile, t2sFile);
+
+        if (isPlaceholder(xrayFile) || isPlaceholder(t2sFile)) {
+            throw new IOException("Placeholder binaries detected in " + binDir.getAbsolutePath());
+        }
+
+        Log.d(TAG, "binaries staged: xray=" + xrayFile.length() + " bytes, t2s=" + t2sFile.length() + " bytes");
+        return new StagePaths(binDir, xrayFile, t2sFile);
     }
 
-    private boolean isPlaceholder(File file) {
+    public File ensureBin(String name) throws Exception {
+        StagePaths sp = stageBinariesIfNeeded(ctx);
+        File target;
+        if ("xray".equals(name)) {
+            target = sp.xray;
+        } else if ("tun2socks".equals(name)) {
+            target = sp.t2s;
+        } else {
+            target = new File(sp.binDir, name);
+        }
+
+        if (isPlaceholder(target)) {
+            throw new IllegalStateException("Binary " + name + " is a placeholder; copy the real file into assets/bin");
+        }
+
+        return target;
+    }
+
+    private static boolean isPlaceholder(File file) {
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buf = new byte[32];
             int n = fis.read(buf);
@@ -168,19 +250,27 @@ public class XrayRunner {
     }
 
     public void startAll(int tunFd, VlessLink v) throws Exception {
-        File xrayBin = ensureBin("xray");
-        File cfg = writeXrayConfig(v, ctx.getFilesDir());
-        ProcessBuilder xb = new ProcessBuilder(xrayBin.getAbsolutePath(), "-c", cfg.getAbsolutePath());
+        final Context ctxLocal = this.ctx;
+        StagePaths sp = stageBinariesIfNeeded(ctxLocal);
+
+        if (isPlaceholder(sp.xray) || isPlaceholder(sp.t2s)) {
+            throw new IllegalStateException("Binaries are placeholders; replace asset files with real executables.");
+        }
+
+        final String XRAY_PATH = sp.xray.getAbsolutePath();
+        final String T2S_PATH = sp.t2s.getAbsolutePath();
+
+        File cfg = writeXrayConfig(v, ctxLocal.getFilesDir());
+        ProcessBuilder xb = new ProcessBuilder(XRAY_PATH, "-c", cfg.getAbsolutePath());
         xb.redirectErrorStream(true);
         Process xp = xb.start();
         this.xray = xp;
         pipeToLogcat("xray", xp.getInputStream());
 
         try {
-            File t2 = ensureBin("tun2socks");
             String fd = String.valueOf(tunFd);
             ProcessBuilder tb = new ProcessBuilder(
-                    t2.getAbsolutePath(),
+                    T2S_PATH,
                     "--tunFd", fd,
                     "--socksServer", "127.0.0.1:10808",
                     "--loglevel", "info"
@@ -192,7 +282,7 @@ public class XrayRunner {
                 pipeToLogcat("tun2socks", tp.getInputStream());
             } catch (Exception primary) {
                 ProcessBuilder fallback = new ProcessBuilder(
-                        t2.getAbsolutePath(),
+                        T2S_PATH,
                         "--tundev", "fd://" + fd,
                         "--netif-ipaddr", "10.8.0.2",
                         "--netif-netmask", "255.255.255.0",
