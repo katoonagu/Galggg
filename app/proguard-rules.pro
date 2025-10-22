@@ -1,1 +1,3 @@
-﻿# (пока пусто)
+-keep class com.example.galggg.vpn.** { *; }
+-keep class com.example.galggg.** { *; }
+-dontwarn org.json.**

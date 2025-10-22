@@ -1,6 +1,7 @@
 package com.example.galggg.vpn;
 
 import android.content.Context;
+import android.os.Build;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -38,6 +39,7 @@ public class XrayRunner {
     }
 
     public void startAll(int tunFd, VlessLink v) throws Exception {
+        stopAll();
         stopping.set(false);
 
         String libDir = ctx.getApplicationInfo().nativeLibraryDir;
@@ -50,9 +52,20 @@ public class XrayRunner {
 
         File cfg = writeXrayConfig(v);
 
-        ProcessBuilder pbX = new ProcessBuilder(xrayFile.getAbsolutePath(), "-c", cfg.getAbsolutePath());
+        ProcessBuilder pbX = new ProcessBuilder(
+                xrayFile.getAbsolutePath(),
+                "run",
+                "-c", cfg.getAbsolutePath(),
+                "-format", "json"
+        );
         pbX.redirectErrorStream(true);
-        Process xp = pbX.start();
+        Process xp;
+        try {
+            xp = pbX.start();
+        } catch (IOException io) {
+            Log.e(TAG, "Unable to start xray: " + io.getMessage(), io);
+            throw io;
+        }
         this.xray = xp;
         pipeProcess("XrayProc", xp);
         watchProcess("xray", xp);
@@ -62,7 +75,10 @@ public class XrayRunner {
             ProcessBuilder pbT = new ProcessBuilder(
                     t2sFile.getAbsolutePath(),
                     "--tunFd", fd,
+                    "--netif-ipaddr", "10.8.0.2",
+                    "--netif-netmask", "255.255.255.0",
                     "--socksServer", "127.0.0.1:10808",
+                    "--tunmtu", "1500",
                     "--loglevel", "info"
             );
             pbT.redirectErrorStream(true);
@@ -70,6 +86,7 @@ public class XrayRunner {
             try {
                 tp = pbT.start();
             } catch (Exception primary) {
+                Log.w(TAG, "Primary tun2socks invocation failed (" + primary.getMessage() + "), trying fallback CLI");
                 ProcessBuilder fallback = new ProcessBuilder(
                         t2sFile.getAbsolutePath(),
                         "--tundev", "fd://" + fd,
@@ -98,13 +115,19 @@ public class XrayRunner {
 
     private void ensureBinaryExists(File file) throws IOException {
         if (!file.exists()) {
-            throw new IOException("Native binary missing: " + file.getAbsolutePath());
+            String msg = "Native binary missing: " + file.getAbsolutePath();
+            Log.e(TAG, msg);
+            throw new IOException(msg);
         }
         if (!file.canExecute()) {
-            throw new IOException("Native binary not executable: " + file.getAbsolutePath());
+            String msg = "Native binary not executable: " + file.getAbsolutePath();
+            Log.e(TAG, msg);
+            throw new IOException(msg);
         }
         if (isPlaceholder(file)) {
-            throw new IOException("Placeholder binary detected: " + file.getAbsolutePath());
+            String msg = "Placeholder binary detected: " + file.getAbsolutePath();
+            Log.e(TAG, msg);
+            throw new IOException(msg);
         }
     }
 
@@ -243,19 +266,29 @@ public class XrayRunner {
 
     public void stopAll() {
         stopping.set(true);
-        if (t2s != null) {
-            try {
-                t2s.destroy();
-            } catch (Exception ignored) {
+        destroyProcess(t2s, "tun2socks");
+        t2s = null;
+        destroyProcess(xray, "xray");
+        xray = null;
+    }
+
+    private void destroyProcess(Process process, String name) {
+        if (process == null) return;
+        try {
+            process.destroy();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!process.waitFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    process.destroyForcibly();
+                    process.waitFor();
+                }
+            } else {
+                process.waitFor();
             }
-            t2s = null;
-        }
-        if (xray != null) {
-            try {
-                xray.destroy();
-            } catch (Exception ignored) {
-            }
-            xray = null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            Log.w(TAG, "Interrupted while stopping " + name, e);
+        } catch (Exception e) {
+            Log.w(TAG, "Error stopping " + name + ": " + e.getMessage(), e);
         }
     }
 }

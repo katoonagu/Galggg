@@ -14,6 +14,7 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ProgressBar;
@@ -51,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_PICK = 2001;
     private static final int REQ_PERM = 2002;
     private static final int REQ_VPN = 3001;
+    private static final int REQ_NOTIF = 3003;
 
     private TextView tvStatus;
     private ProgressBar progress;
@@ -88,6 +90,8 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             });
         }
+
+        requestNotificationPermissionIfNeeded();
     }
 
     private void onConnectClickedReal() {
@@ -140,6 +144,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        REQ_NOTIF
+                );
+            }
+        }
+    }
+
     private void openImagePicker() {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*");
@@ -152,8 +169,14 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(code, perms, res);
         if (code == REQ_PERM && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
             openImagePicker();
-        } else {
+        } else if (code == REQ_PERM) {
             setStatus("Разрешение не предоставлено", true);
+        } else if (code == REQ_NOTIF) {
+            if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.i("MainActivity", "Notification permission granted");
+            } else {
+                Log.w("MainActivity", "Notification permission denied");
+            }
         }
     }
 

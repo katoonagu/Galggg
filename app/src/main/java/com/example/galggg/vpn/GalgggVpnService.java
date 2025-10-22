@@ -44,7 +44,7 @@ public class GalgggVpnService extends VpnService {
             stopSelf();
             return START_NOT_STICKY;
         }
-        startForeground(NOTIF_ID, buildNotif("Galggg: initializing..."));
+        startForeground(NOTIF_ID, buildNotif("Galggg: Connecting..."));
         startVpn();
         return START_STICKY;
     }
@@ -54,6 +54,7 @@ public class GalgggVpnService extends VpnService {
         try {
             Builder b = new Builder();
             b.setSession("Galggg");
+            b.setMtu(1500);
             b.addAddress("10.8.0.2", 32);
             b.addRoute("0.0.0.0", 0);
             b.addDnsServer("1.1.1.1");
@@ -62,9 +63,15 @@ public class GalgggVpnService extends VpnService {
                 b.addDisallowedApplication(getPackageName());
             } catch (PackageManager.NameNotFoundException e) {
                 Log.w("GalgggVpnService", "Unable to exclude self from VPN", e);
+            } catch (Exception e) {
+                Log.w("GalgggVpnService", "Unexpected error excluding app from VPN", e);
             }
-            tun = b.establish();
-            if (tun == null) throw new IllegalStateException("Failed to establish TUN interface");
+            ParcelFileDescriptor newTun = b.establish();
+            if (newTun == null) {
+                throw new IllegalStateException("Failed to establish TUN interface");
+            }
+            tun = newTun;
+            Log.i("GalgggVpnService", "TUN established fd=" + tun.getFd());
 
             String link = getSharedPreferences("vless_store", MODE_PRIVATE)
                     .getString("vless_link", null);
@@ -76,7 +83,8 @@ public class GalgggVpnService extends VpnService {
 
             running.set(true);
             ACTIVE.set(true);
-            updateNotif("Galggg VPN running");
+            updateNotif("Galggg VPN connected");
+            Log.i("GalgggVpnService", "VPN connected");
         } catch (Exception e) {
             Log.e("GalgggVpnService", "startVpn error", e);
             updateNotif("VPN error: " + e.getMessage());
@@ -86,7 +94,7 @@ public class GalgggVpnService extends VpnService {
         }
     }
 
-    private void stopRunner() {
+    private synchronized void stopRunner() {
         if (runner != null) {
             runner.stopAll();
             runner = null;
@@ -157,5 +165,12 @@ public class GalgggVpnService extends VpnService {
         stopRunner();
         stopForeground(true);
         super.onRevoke();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        stopRunner();
+        stopForeground(true);
+        super.onTaskRemoved(rootIntent);
     }
 }
