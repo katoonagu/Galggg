@@ -14,6 +14,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class XrayRunner {
@@ -70,47 +72,30 @@ public class XrayRunner {
         pipeProcess("XrayProc", xp);
         watchProcess("xray", xp);
 
+        final int socksPort = 10808;
+        final String socksAddr = "socks5://127.0.0.1:" + socksPort;
+        final String t2sPath = t2sFile.getAbsolutePath();
+        final List<String> t2sArgs = Arrays.asList(
+                t2sPath,
+                "-device", "tun://fd/" + tunFd,
+                "-mtu", "1500",
+                "-proxy", socksAddr,
+                "-loglevel", "info",
+                "-tcp-auto-tuning"
+        );
+        Log.d(TAG, "Starting tun2socks: " + t2sArgs);
+        ProcessBuilder pbT = new ProcessBuilder(t2sArgs);
+        pbT.redirectErrorStream(true);
+        Process tp;
         try {
-            String fd = String.valueOf(tunFd);
-            ProcessBuilder pbT = new ProcessBuilder(
-                    t2sFile.getAbsolutePath(),
-                    "--tunFd", fd,
-                    "--netif-ipaddr", "10.8.0.2",
-                    "--netif-netmask", "255.255.255.0",
-                    "--socksServer", "127.0.0.1:10808",
-                    "--tunmtu", "1500",
-                    "--loglevel", "info"
-            );
-            pbT.redirectErrorStream(true);
-            Process tp;
-            try {
-                tp = pbT.start();
-            } catch (Exception primary) {
-                Log.w(TAG, "Primary tun2socks invocation failed (" + primary.getMessage() + "), trying fallback CLI");
-                ProcessBuilder fallback = new ProcessBuilder(
-                        t2sFile.getAbsolutePath(),
-                        "--tundev", "fd://" + fd,
-                        "--netif-ipaddr", "10.8.0.2",
-                        "--netif-netmask", "255.255.255.0",
-                        "--socks-server-addr", "127.0.0.1:10808",
-                        "--socks5-udp"
-                );
-                fallback.redirectErrorStream(true);
-                tp = fallback.start();
-            }
-            this.t2s = tp;
-            pipeProcess("Tun2SocksProc", tp);
-            watchProcess("tun2socks", tp);
-        } catch (Exception e) {
-            if (xray != null) {
-                try {
-                    xray.destroy();
-                } catch (Exception ignored) {
-                }
-                xray = null;
-            }
-            throw e;
+            tp = pbT.start();
+        } catch (IOException io) {
+            Log.e(TAG, "Unable to start tun2socks: " + io.getMessage(), io);
+            throw io;
         }
+        this.t2s = tp;
+        pipeProcess("Tun2SocksProc", tp);
+        watchProcess("tun2socks", tp);
     }
 
     private void ensureBinaryExists(File file) throws IOException {
