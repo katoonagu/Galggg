@@ -2,6 +2,10 @@ package com.example.galggg.vpn;
 
 import android.content.Context;
 import android.os.Build;
+import android.os.ParcelFileDescriptor;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.system.OsConstants;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -40,7 +44,7 @@ public class XrayRunner {
         this.crashListener = listener;
     }
 
-    public void startAll(int tunFd, VlessLink v) throws Exception {
+    public void startAll(ParcelFileDescriptor tunPfd, VlessLink v) throws Exception {
         stopAll();
         stopping.set(false);
 
@@ -51,6 +55,22 @@ public class XrayRunner {
 
         ensureBinaryExists(xrayFile);
         ensureBinaryExists(t2sFile);
+
+        if (tunPfd == null) {
+            throw new IllegalArgumentException("ParcelFileDescriptor for TUN must not be null");
+        }
+        final int tunFd = tunPfd.getFd();
+        final java.io.FileDescriptor tunFdObj = tunPfd.getFileDescriptor();
+        int beforeFlags = -1;
+        int afterFlags = -1;
+        try {
+            beforeFlags = Os.fcntlInt(tunFdObj, OsConstants.F_GETFD, 0);
+            Os.fcntlInt(tunFdObj, OsConstants.F_SETFD, 0);
+            afterFlags = Os.fcntlInt(tunFdObj, OsConstants.F_GETFD, 0);
+        } catch (ErrnoException e) {
+            Log.w(TAG, "Unable to clear FD_CLOEXEC on tunFd: " + e.getMessage(), e);
+        }
+        Log.d(TAG, "tunFd flags before=" + beforeFlags + " after=" + afterFlags);
 
         File cfg = writeXrayConfig(v);
 
@@ -77,7 +97,7 @@ public class XrayRunner {
         final String t2sPath = t2sFile.getAbsolutePath();
         final List<String> t2sArgs = Arrays.asList(
                 t2sPath,
-                "-device", "tun://fd/" + tunFd,
+                "-device", "fd://" + tunFd,
                 "-mtu", "1500",
                 "-proxy", socksAddr,
                 "-loglevel", "info",

@@ -79,7 +79,7 @@ public class GalgggVpnService extends VpnService {
             if (vl == null) throw new IllegalStateException("VLESS link missing or invalid");
 
             runner = new XrayRunner(this, this::handleRunnerCrash);
-            runner.startAll(tun.getFd(), vl);
+            runner.startAll(tun, vl);
 
             running.set(true);
             ACTIVE.set(true);
