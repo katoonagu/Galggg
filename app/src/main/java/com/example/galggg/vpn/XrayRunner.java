@@ -74,6 +74,7 @@ public class XrayRunner {
         Log.d(TAG, "tunFd flags before=" + beforeFlags + " after=" + afterFlags);
 
         File cfg = writeXrayConfig(v);
+        Log.d(TAG, "dns-mode=DoH via dns-out; UDP/53 routed internally");
 
         ProcessBuilder pbX = new ProcessBuilder(
                 xrayFile.getAbsolutePath(),
@@ -169,6 +170,14 @@ public class XrayRunner {
         log.put("loglevel", "warning");
         root.put("log", log);
 
+        JSONObject dns = new JSONObject();
+        JSONArray dnsServers = new JSONArray();
+        dnsServers.put("https://1.1.1.1/dns-query");
+        dnsServers.put("https://8.8.8.8/dns-query");
+        dns.put("servers", dnsServers);
+        dns.put("queryStrategy", "UseIPv4");
+        root.put("dns", dns);
+
         JSONObject inbound = new JSONObject();
         inbound.put("tag", "socks-in");
         inbound.put("listen", "127.0.0.1");
@@ -176,6 +185,7 @@ public class XrayRunner {
         inbound.put("protocol", "socks");
         JSONObject inboundSettings = new JSONObject();
         inboundSettings.put("udp", true);
+        inboundSettings.put("auth", "noauth");
         inbound.put("settings", inboundSettings);
         JSONArray inbounds = new JSONArray();
         inbounds.put(inbound);
@@ -220,6 +230,11 @@ public class XrayRunner {
         JSONArray outbounds = new JSONArray();
         outbounds.put(outbound);
 
+        JSONObject dnsOut = new JSONObject();
+        dnsOut.put("protocol", "dns");
+        dnsOut.put("tag", "dns-out");
+        outbounds.put(dnsOut);
+
         JSONObject freedom = new JSONObject();
         freedom.put("protocol", "freedom");
         freedom.put("tag", "direct");
@@ -232,12 +247,26 @@ public class XrayRunner {
 
         root.put("outbounds", outbounds);
 
-        JSONObject dns = new JSONObject();
-        JSONArray servers = new JSONArray();
-        servers.put("1.1.1.1");
-        servers.put("8.8.8.8");
-        dns.put("servers", servers);
-        root.put("dns", dns);
+        JSONObject routing = new JSONObject();
+        routing.put("domainStrategy", "AsIs");
+        JSONArray rules = new JSONArray();
+
+        JSONObject dnsRule = new JSONObject();
+        dnsRule.put("type", "field");
+        dnsRule.put("inboundTag", new JSONArray().put("socks-in"));
+        dnsRule.put("port", "53");
+        dnsRule.put("network", "udp");
+        dnsRule.put("outboundTag", "dns-out");
+        rules.put(dnsRule);
+
+        JSONObject defaultRule = new JSONObject();
+        defaultRule.put("type", "field");
+        defaultRule.put("inboundTag", new JSONArray().put("socks-in"));
+        defaultRule.put("outboundTag", "vless-out");
+        rules.put(defaultRule);
+
+        routing.put("rules", rules);
+        root.put("routing", routing);
 
         File cfgFile = new File(ctx.getCacheDir(), "xray_client.json");
         try (FileOutputStream fos = new FileOutputStream(cfgFile, false)) {
@@ -245,6 +274,7 @@ public class XrayRunner {
             fos.write(json);
             fos.getFD().sync();
         }
+        cfgFile.setReadable(true, false);
         Log.d(TAG, "xray client config at: " + cfgFile.getAbsolutePath());
         return cfgFile;
     }
