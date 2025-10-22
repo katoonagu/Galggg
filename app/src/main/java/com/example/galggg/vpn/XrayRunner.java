@@ -1,10 +1,6 @@
 package com.example.galggg.vpn;
 
 import android.content.Context;
-import android.content.res.AssetManager;
-import android.os.Build;
-import android.system.ErrnoException;
-import android.system.Os;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -14,158 +10,105 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class XrayRunner {
+
+    public interface CrashListener {
+        void onProcessCrashed(String name, int exitCode);
+    }
+
     private static final String TAG = "XrayRunner";
+    private static final String XRAY_NAME = "libxray.so";
+    private static final String T2S_NAME = "libtun2socks.so";
+
     private final Context ctx;
+    private final CrashListener crashListener;
+
     private Process xray;
     private Process t2s;
+    private final AtomicBoolean stopping = new AtomicBoolean(false);
 
-    public XrayRunner(Context c) {
-        this.ctx = c.getApplicationContext();
+    public XrayRunner(Context context, CrashListener listener) {
+        this.ctx = context.getApplicationContext();
+        this.crashListener = listener;
     }
 
-    // === NEW: safe chmod for dir and files (owner-only 0700) with fallbacks ===
-    private static void chmodExec(File dir, File... files) throws IOException {
-        if (dir != null) {
+    public void startAll(int tunFd, VlessLink v) throws Exception {
+        stopping.set(false);
+
+        String libDir = ctx.getApplicationInfo().nativeLibraryDir;
+        File xrayFile = new File(libDir, XRAY_NAME);
+        File t2sFile = new File(libDir, T2S_NAME);
+        Log.d(TAG, "nativeLibraryDir=" + libDir + " xray=" + xrayFile + " t2s=" + t2sFile);
+
+        ensureBinaryExists(xrayFile);
+        ensureBinaryExists(t2sFile);
+
+        File cfg = writeXrayConfig(v);
+
+        ProcessBuilder pbX = new ProcessBuilder(xrayFile.getAbsolutePath(), "-c", cfg.getAbsolutePath());
+        pbX.redirectErrorStream(true);
+        Process xp = pbX.start();
+        this.xray = xp;
+        pipeProcess("XrayProc", xp);
+        watchProcess("xray", xp);
+
+        try {
+            String fd = String.valueOf(tunFd);
+            ProcessBuilder pbT = new ProcessBuilder(
+                    t2sFile.getAbsolutePath(),
+                    "--tunFd", fd,
+                    "--socksServer", "127.0.0.1:10808",
+                    "--loglevel", "info"
+            );
+            pbT.redirectErrorStream(true);
+            Process tp;
             try {
-                Os.chmod(dir.getAbsolutePath(), 0700);
-            } catch (ErrnoException e) {
-                try {
-                    new ProcessBuilder("chmod", "700", dir.getAbsolutePath()).start().waitFor();
-                } catch (Exception ignore) {
-                }
+                tp = pbT.start();
+            } catch (Exception primary) {
+                ProcessBuilder fallback = new ProcessBuilder(
+                        t2sFile.getAbsolutePath(),
+                        "--tundev", "fd://" + fd,
+                        "--netif-ipaddr", "10.8.0.2",
+                        "--netif-netmask", "255.255.255.0",
+                        "--socks-server-addr", "127.0.0.1:10808",
+                        "--socks5-udp"
+                );
+                fallback.redirectErrorStream(true);
+                tp = fallback.start();
             }
-        }
-        for (File f : files) {
-            if (f == null) continue;
-            f.setExecutable(true, true);
-            f.setReadable(true, true);
-            f.setWritable(true, true);
-            try {
-                Os.chmod(f.getAbsolutePath(), 0700);
-            } catch (ErrnoException e) {
-                try {
-                    new ProcessBuilder("chmod", "700", f.getAbsolutePath()).start().waitFor();
-                } catch (Exception ignore) {
-                }
-            }
-            if (!f.canExecute()) {
-                Log.e(TAG, "binary still not executable after chmod: " + f);
-                throw new IOException("Not executable after chmod: " + f.getAbsolutePath());
-            }
-        }
-    }
-
-    // === NEW: copy asset to file (overwrites if content differs) ===
-    private static void copyAsset(AssetManager am, String assetPath, File out) throws IOException {
-        File parent = out.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IOException("Cannot mkdirs: " + parent);
-        }
-        try (InputStream in = am.open(assetPath);
-             FileOutputStream fos = new FileOutputStream(out, false)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) >= 0) {
-                fos.write(buf, 0, n);
-            }
-            fos.getFD().sync();
-        }
-    }
-
-    // === NEW: stage binaries from assets into app-private bin dir and chmod ===
-    private static class StagePaths {
-        final File binDir;
-        final File xray;
-        final File t2s;
-
-        StagePaths(File binDir, File xray, File t2s) {
-            this.binDir = binDir;
-            this.xray = xray;
-            this.t2s = t2s;
-        }
-    }
-
-    private static StagePaths stageBinariesIfNeeded(Context ctx) throws IOException {
-        File binDir = new File(ctx.getFilesDir(), "bin");
-        if (!binDir.exists() && !binDir.mkdirs()) {
-            throw new IOException("Cannot create bin dir: " + binDir);
-        }
-
-        String abi = (Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0)
-                ? Build.SUPPORTED_ABIS[0]
-                : Build.CPU_ABI;
-        String abiDir;
-        if (abi != null && abi.contains("64")) {
-            abiDir = abi.startsWith("arm") ? "arm64-v8a" : "x86_64";
-        } else {
-            abiDir = (abi != null && abi.startsWith("arm")) ? "armeabi-v7a" : "x86";
-        }
-        if (!"arm64-v8a".equals(abiDir) && !"x86_64".equals(abiDir)) {
-            abiDir = (abi != null && abi.contains("arm")) ? "arm64-v8a" : "x86_64";
-        }
-        String base = "bin/" + abiDir + "/";
-
-        File xrayFile = new File(binDir, "xray");
-        File t2sFile = new File(binDir, "tun2socks");
-
-        AssetManager am = ctx.getAssets();
-
-        if (!xrayFile.exists() || xrayFile.length() < 1024) {
-            Log.d(TAG, "staging xray from assets: " + base + "xray -> " + xrayFile);
-            copyAsset(am, base + "xray", xrayFile);
-        }
-        if (!t2sFile.exists() || t2sFile.length() < 1024) {
-            Log.d(TAG, "staging tun2socks from assets: " + base + "tun2socks -> " + t2sFile);
-            copyAsset(am, base + "tun2socks", t2sFile);
-        }
-
-        chmodExec(binDir, xrayFile, t2sFile);
-
-        if (isPlaceholder(xrayFile) || isPlaceholder(t2sFile)) {
-            throw new IOException("Placeholder binaries detected in " + binDir.getAbsolutePath());
-        }
-
-        Log.d(TAG, "binaries staged: xray=" + xrayFile.length() + " bytes, t2s=" + t2sFile.length() + " bytes");
-        return new StagePaths(binDir, xrayFile, t2sFile);
-    }
-
-    public File ensureBin(String name) throws Exception {
-        StagePaths sp = stageBinariesIfNeeded(ctx);
-        File target;
-        if ("xray".equals(name)) {
-            target = sp.xray;
-        } else if ("tun2socks".equals(name)) {
-            target = sp.t2s;
-        } else {
-            target = new File(sp.binDir, name);
-        }
-
-        if (isPlaceholder(target)) {
-            throw new IllegalStateException("Binary " + name + " is a placeholder; copy the real file into assets/bin");
-        }
-
-        return target;
-    }
-
-    private static boolean isPlaceholder(File file) {
-        try (FileInputStream fis = new FileInputStream(file)) {
-            byte[] buf = new byte[32];
-            int n = fis.read(buf);
-            if (n <= 0) return true;
-            String first = new String(buf, 0, n).trim();
-            return first.startsWith("PUT BINARY HERE");
+            this.t2s = tp;
+            pipeProcess("Tun2SocksProc", tp);
+            watchProcess("tun2socks", tp);
         } catch (Exception e) {
-            return false;
+            if (xray != null) {
+                try {
+                    xray.destroy();
+                } catch (Exception ignored) {
+                }
+                xray = null;
+            }
+            throw e;
         }
     }
 
-    public File writeXrayConfig(VlessLink v, File geoDir) throws Exception {
+    private void ensureBinaryExists(File file) throws IOException {
+        if (!file.exists()) {
+            throw new IOException("Native binary missing: " + file.getAbsolutePath());
+        }
+        if (!file.canExecute()) {
+            throw new IOException("Native binary not executable: " + file.getAbsolutePath());
+        }
+        if (isPlaceholder(file)) {
+            throw new IOException("Placeholder binary detected: " + file.getAbsolutePath());
+        }
+    }
+
+    private File writeXrayConfig(VlessLink v) throws Exception {
         JSONObject root = new JSONObject();
 
         JSONObject log = new JSONObject();
@@ -242,83 +185,64 @@ public class XrayRunner {
         dns.put("servers", servers);
         root.put("dns", dns);
 
-        File cfg = new File(ctx.getFilesDir(), "xray-client.json");
-        try (FileWriter fw = new FileWriter(cfg, false)) {
-            fw.write(root.toString(2));
+        File cfgFile = new File(ctx.getCacheDir(), "xray_client.json");
+        try (FileOutputStream fos = new FileOutputStream(cfgFile, false)) {
+            byte[] json = root.toString(2).getBytes(StandardCharsets.UTF_8);
+            fos.write(json);
+            fos.getFD().sync();
         }
-        return cfg;
+        Log.d(TAG, "xray client config at: " + cfgFile.getAbsolutePath());
+        return cfgFile;
     }
 
-    public void startAll(int tunFd, VlessLink v) throws Exception {
-        final Context ctxLocal = this.ctx;
-        StagePaths sp = stageBinariesIfNeeded(ctxLocal);
-
-        if (isPlaceholder(sp.xray) || isPlaceholder(sp.t2s)) {
-            throw new IllegalStateException("Binaries are placeholders; replace asset files with real executables.");
-        }
-
-        final String XRAY_PATH = sp.xray.getAbsolutePath();
-        final String T2S_PATH = sp.t2s.getAbsolutePath();
-
-        File cfg = writeXrayConfig(v, ctxLocal.getFilesDir());
-        ProcessBuilder xb = new ProcessBuilder(XRAY_PATH, "-c", cfg.getAbsolutePath());
-        xb.redirectErrorStream(true);
-        Process xp = xb.start();
-        this.xray = xp;
-        pipeToLogcat("xray", xp.getInputStream());
-
-        try {
-            String fd = String.valueOf(tunFd);
-            ProcessBuilder tb = new ProcessBuilder(
-                    T2S_PATH,
-                    "--tunFd", fd,
-                    "--socksServer", "127.0.0.1:10808",
-                    "--loglevel", "info"
-            );
-            try {
-                tb.redirectErrorStream(true);
-                Process tp = tb.start();
-                this.t2s = tp;
-                pipeToLogcat("tun2socks", tp.getInputStream());
-            } catch (Exception primary) {
-                ProcessBuilder fallback = new ProcessBuilder(
-                        T2S_PATH,
-                        "--tundev", "fd://" + fd,
-                        "--netif-ipaddr", "10.8.0.2",
-                        "--netif-netmask", "255.255.255.0",
-                        "--socks-server-addr", "127.0.0.1:10808",
-                        "--socks5-udp"
-                );
-                fallback.redirectErrorStream(true);
-                Process tp = fallback.start();
-                this.t2s = tp;
-                pipeToLogcat("tun2socks", tp.getInputStream());
-            }
+    private static boolean isPlaceholder(File file) {
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] buf = new byte[32];
+            int n = fis.read(buf);
+            if (n <= 0) return true;
+            String first = new String(buf, 0, n).trim();
+            return first.startsWith("PUT BINARY HERE");
         } catch (Exception e) {
-            if (xray != null) {
-                try {
-                    xray.destroy();
-                } catch (Exception ignored) {
-                }
-                xray = null;
-            }
-            throw e;
+            return false;
         }
     }
 
-    private void pipeToLogcat(final String tag, final InputStream in) {
-        new Thread(() -> {
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(in))) {
+    private void pipeProcess(String tag, Process process) {
+        if (process == null) return;
+        Thread t = new Thread(() -> {
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
-                while ((line = br.readLine()) != null) {
-                    Log.i("XR-" + tag, line);
+                while ((line = r.readLine()) != null) {
+                    Log.d(tag, line);
                 }
-            } catch (Exception ignored) {
+            } catch (IOException e) {
+                Log.e(tag, "pipe error", e);
             }
-        }, "pipe-" + tag).start();
+        }, tag + "-pipe");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void watchProcess(String name, Process process) {
+        if (process == null) return;
+        Thread t = new Thread(() -> {
+            try {
+                int code = process.waitFor();
+                if (!stopping.get() && code != 0 && crashListener != null) {
+                    Log.e(TAG, name + " exited with code " + code);
+                    crashListener.onProcessCrashed(name, code);
+                } else {
+                    Log.d(TAG, name + " exited with code " + code);
+                }
+            } catch (InterruptedException ignored) {
+            }
+        }, "watch-" + name);
+        t.setDaemon(true);
+        t.start();
     }
 
     public void stopAll() {
+        stopping.set(true);
         if (t2s != null) {
             try {
                 t2s.destroy();

@@ -4,8 +4,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.VpnService;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
@@ -20,7 +23,10 @@ public class GalgggVpnService extends VpnService {
     public static final String ACTION_START = "com.example.galggg.vpn.START";
     public static final String ACTION_STOP = "com.example.galggg.vpn.STOP";
     private static final String CH_ID = "galggg_vpn";
+    private static final int NOTIF_ID = 101;
     private static final AtomicBoolean ACTIVE = new AtomicBoolean(false);
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private ParcelFileDescriptor tun;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -38,7 +44,7 @@ public class GalgggVpnService extends VpnService {
             stopSelf();
             return START_NOT_STICKY;
         }
-        startForeground(1, buildNotif("Galggg: initializing..."));
+        startForeground(NOTIF_ID, buildNotif("Galggg: initializing..."));
         startVpn();
         return START_STICKY;
     }
@@ -52,6 +58,11 @@ public class GalgggVpnService extends VpnService {
             b.addRoute("0.0.0.0", 0);
             b.addDnsServer("1.1.1.1");
             b.addDnsServer("8.8.8.8");
+            try {
+                b.addDisallowedApplication(getPackageName());
+            } catch (PackageManager.NameNotFoundException e) {
+                Log.w("GalgggVpnService", "Unable to exclude self from VPN", e);
+            }
             tun = b.establish();
             if (tun == null) throw new IllegalStateException("Failed to establish TUN interface");
 
@@ -60,7 +71,7 @@ public class GalgggVpnService extends VpnService {
             VlessLink vl = VlessLink.parse(link);
             if (vl == null) throw new IllegalStateException("VLESS link missing or invalid");
 
-            runner = new XrayRunner(this);
+            runner = new XrayRunner(this, this::handleRunnerCrash);
             runner.startAll(tun.getFd(), vl);
 
             running.set(true);
@@ -120,7 +131,18 @@ public class GalgggVpnService extends VpnService {
     }
 
     private void updateNotif(String text) {
-        startForeground(1, buildNotif(text));
+        startForeground(NOTIF_ID, buildNotif(text));
+    }
+
+    private void handleRunnerCrash(String procName, int exitCode) {
+        if (!running.get()) return;
+        mainHandler.post(() -> {
+            Log.e("GalgggVpnService", procName + " exited with code " + exitCode);
+            updateNotif("VPN error: " + procName + " exited (" + exitCode + ")");
+            stopRunner();
+            stopForeground(true);
+            stopSelf();
+        });
     }
 
     @Override
