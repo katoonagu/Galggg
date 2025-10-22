@@ -171,23 +171,11 @@ public class XrayRunner {
 
         JSONObject dns = new JSONObject();
         JSONArray dnsServers = new JSONArray();
-        JSONObject dohGoogle = new JSONObject();
-        dohGoogle.put("address", "https://dns.google/dns-query");
-        dohGoogle.put("skipFallback", true);
-        dohGoogle.put("detour", "vless-out");
-        dnsServers.put(dohGoogle);
-        JSONObject dohCloudflare = new JSONObject();
-        dohCloudflare.put("address", "https://cloudflare-dns.com/dns-query");
-        dohCloudflare.put("skipFallback", true);
-        dohCloudflare.put("detour", "vless-out");
-        dnsServers.put(dohCloudflare);
-        JSONObject dohLocal = new JSONObject();
-        dohLocal.put("address", "localhost");
-        dnsServers.put(dohLocal);
+        dnsServers.put("https+local://dns.google/dns-query");
+        dnsServers.put("https+local://cloudflare-dns.com/dns-query");
         dns.put("servers", dnsServers);
-        dns.put("queryStrategy", "UseIP");
-        dns.put("disableCache", false);
-        dns.put("tag", "builtin-dns");
+        dns.put("queryStrategy", "UseIPv4");
+        dns.put("detour", "vless-out");
         root.put("dns", dns);
 
         JSONObject inbound = new JSONObject();
@@ -199,6 +187,10 @@ public class XrayRunner {
         inboundSettings.put("udp", true);
         inboundSettings.put("auth", "noauth");
         inbound.put("settings", inboundSettings);
+        JSONObject sniffing = new JSONObject();
+        sniffing.put("enabled", true);
+        sniffing.put("destOverride", new JSONArray().put("http").put("tls").put("quic"));
+        inbound.put("sniffing", sniffing);
         JSONArray inbounds = new JSONArray();
         inbounds.put(inbound);
         root.put("inbounds", inbounds);
@@ -271,6 +263,17 @@ public class XrayRunner {
         dnsRule.put("outboundTag", "dns-out");
         rules.put(dnsRule);
 
+        JSONObject dohDomainRule = new JSONObject();
+        dohDomainRule.put("type", "field");
+        JSONArray dohDomains = new JSONArray();
+        dohDomains.put("dns.google");
+        dohDomains.put("cloudflare-dns.com");
+        dohDomains.put("chrome.cloudflare-dns.com");
+        dohDomains.put("www.cloudflare-dns.com");
+        dohDomainRule.put("domain", dohDomains);
+        dohDomainRule.put("outboundTag", "vless-out");
+        rules.put(dohDomainRule);
+
         JSONObject defaultRule = new JSONObject();
         defaultRule.put("type", "field");
         defaultRule.put("inboundTag", new JSONArray().put("socks-in"));
@@ -289,6 +292,11 @@ public class XrayRunner {
         }
         cfgFile.setReadable(true, false);
         Log.d(TAG, "xray client config at: " + cfgFile.getAbsolutePath());
+        try {
+            Os.chmod(cfgFile.getAbsolutePath(), 0644);
+        } catch (ErrnoException e) {
+            Log.w(TAG, "chmod config failed: " + e.getMessage(), e);
+        }
         Log.d(TAG, "dns-mode=DoH via dns-out; servers=[dns.google, cloudflare-dns.com]");
         if (jsonPretty.length() > 0) {
             int previewLen = Math.min(jsonPretty.length(), 2000);
