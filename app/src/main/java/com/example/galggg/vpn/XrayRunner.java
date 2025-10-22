@@ -13,6 +13,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -97,7 +98,7 @@ public class XrayRunner {
         final String t2sPath = t2sFile.getAbsolutePath();
         final List<String> t2sArgs = Arrays.asList(
                 t2sPath,
-                "-device", "fd://" + tunFd,
+                "-device", "fd://0",
                 "-mtu", "1500",
                 "-proxy", socksAddr,
                 "-loglevel", "info",
@@ -106,12 +107,37 @@ public class XrayRunner {
         Log.d(TAG, "Starting tun2socks: " + t2sArgs);
         ProcessBuilder pbT = new ProcessBuilder(t2sArgs);
         pbT.redirectErrorStream(true);
-        Process tp;
+        pbT.redirectInput(ProcessBuilder.Redirect.INHERIT);
+        Process tp = null;
+        FileDescriptor savedIn = null;
         try {
-            tp = pbT.start();
-        } catch (IOException io) {
-            Log.e(TAG, "Unable to start tun2socks: " + io.getMessage(), io);
-            throw io;
+            savedIn = Os.dup(FileDescriptor.in);
+        } catch (ErrnoException e) {
+            Log.w(TAG, "Unable to duplicate stdin: " + e.getMessage(), e);
+        }
+        try {
+            Os.dup2(tunPfd.getFileDescriptor(), 0);
+            try {
+                tp = pbT.start();
+            } catch (IOException io) {
+                Log.e(TAG, "Unable to start tun2socks: " + io.getMessage(), io);
+                throw io;
+            }
+        } catch (ErrnoException e) {
+            Log.e(TAG, "dup2 to stdin failed: " + e.getMessage(), e);
+            throw new IOException("dup2 failed", e);
+        } finally {
+            if (savedIn != null) {
+                try {
+                    Os.dup2(savedIn, 0);
+                } catch (ErrnoException e) {
+                    Log.w(TAG, "Unable to restore stdin: " + e.getMessage(), e);
+                }
+                try {
+                    Os.close(savedIn);
+                } catch (ErrnoException ignored) {
+                }
+            }
         }
         this.t2s = tp;
         pipeProcess("Tun2SocksProc", tp);
