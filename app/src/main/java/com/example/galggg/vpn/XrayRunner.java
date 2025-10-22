@@ -9,19 +9,23 @@ import android.system.OsConstants;
 import android.util.Log;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 
 public class XrayRunner {
 
@@ -60,18 +64,6 @@ public class XrayRunner {
         if (tunPfd == null) {
             throw new IllegalArgumentException("ParcelFileDescriptor for TUN must not be null");
         }
-        final int tunFd = tunPfd.getFd();
-        final java.io.FileDescriptor tunFdObj = tunPfd.getFileDescriptor();
-        int beforeFlags = -1;
-        int afterFlags = -1;
-        try {
-            beforeFlags = Os.fcntlInt(tunFdObj, OsConstants.F_GETFD, 0);
-            Os.fcntlInt(tunFdObj, OsConstants.F_SETFD, 0);
-            afterFlags = Os.fcntlInt(tunFdObj, OsConstants.F_GETFD, 0);
-        } catch (ErrnoException e) {
-            Log.w(TAG, "Unable to clear FD_CLOEXEC on tunFd: " + e.getMessage(), e);
-        }
-        Log.d(TAG, "tunFd flags before=" + beforeFlags + " after=" + afterFlags);
 
         File cfg = writeXrayConfig(v);
 
@@ -93,55 +85,8 @@ public class XrayRunner {
         pipeProcess("XrayProc", xp);
         watchProcess("xray", xp);
 
-        final int socksPort = 10808;
-        final String socksAddr = "socks5://127.0.0.1:" + socksPort;
-        final String t2sPath = t2sFile.getAbsolutePath();
-        final List<String> t2sArgs = Arrays.asList(
-                t2sPath,
-                "-device", "fd://0",
-                "-mtu", "1500",
-                "-proxy", socksAddr,
-                "-loglevel", "info",
-                "-tcp-auto-tuning"
-        );
-        Log.d(TAG, "Starting tun2socks: " + t2sArgs);
-        ProcessBuilder pbT = new ProcessBuilder(t2sArgs);
-        pbT.redirectErrorStream(true);
-        pbT.redirectInput(ProcessBuilder.Redirect.INHERIT);
-        Process tp = null;
-        FileDescriptor savedIn = null;
-        try {
-            savedIn = Os.dup(FileDescriptor.in);
-        } catch (ErrnoException e) {
-            Log.w(TAG, "Unable to duplicate stdin: " + e.getMessage(), e);
-        }
-        try {
-            Os.dup2(tunPfd.getFileDescriptor(), 0);
-            try {
-                tp = pbT.start();
-            } catch (IOException io) {
-                Log.e(TAG, "Unable to start tun2socks: " + io.getMessage(), io);
-                throw io;
-            }
-        } catch (ErrnoException e) {
-            Log.e(TAG, "dup2 to stdin failed: " + e.getMessage(), e);
-            throw new IOException("dup2 failed", e);
-        } finally {
-            if (savedIn != null) {
-                try {
-                    Os.dup2(savedIn, 0);
-                } catch (ErrnoException e) {
-                    Log.w(TAG, "Unable to restore stdin: " + e.getMessage(), e);
-                }
-                try {
-                    Os.close(savedIn);
-                } catch (ErrnoException ignored) {
-                }
-            }
-        }
-        this.t2s = tp;
-        pipeProcess("Tun2SocksProc", tp);
-        watchProcess("tun2socks", tp);
+        this.t2s = startTun2Socks(t2sFile, tunPfd);
+        watchProcess("tun2socks", this.t2s);
     }
 
     private void ensureBinaryExists(File file) throws IOException {
@@ -169,15 +114,6 @@ public class XrayRunner {
         log.put("loglevel", "warning");
         root.put("log", log);
 
-        JSONObject dns = new JSONObject();
-        JSONArray dnsServers = new JSONArray();
-        dnsServers.put("https+local://dns.google/dns-query");
-        dnsServers.put("https+local://cloudflare-dns.com/dns-query");
-        dns.put("servers", dnsServers);
-        dns.put("queryStrategy", "UseIPv4");
-        dns.put("detour", "vless-out");
-        root.put("dns", dns);
-
         JSONObject inbound = new JSONObject();
         inbound.put("tag", "socks-in");
         inbound.put("listen", "127.0.0.1");
@@ -187,10 +123,6 @@ public class XrayRunner {
         inboundSettings.put("udp", true);
         inboundSettings.put("auth", "noauth");
         inbound.put("settings", inboundSettings);
-        JSONObject sniffing = new JSONObject();
-        sniffing.put("enabled", true);
-        sniffing.put("destOverride", new JSONArray().put("http").put("tls").put("quic"));
-        inbound.put("sniffing", sniffing);
         JSONArray inbounds = new JSONArray();
         inbounds.put(inbound);
         root.put("inbounds", inbounds);
@@ -251,58 +183,119 @@ public class XrayRunner {
 
         root.put("outbounds", outbounds);
 
-        JSONObject routing = new JSONObject();
-        routing.put("domainStrategy", "IPIfNonMatch");
-        JSONArray rules = new JSONArray();
-
-        JSONObject dnsRule = new JSONObject();
-        dnsRule.put("type", "field");
-        dnsRule.put("inboundTag", new JSONArray().put("socks-in"));
-        dnsRule.put("network", "udp");
-        dnsRule.put("port", "53");
-        dnsRule.put("outboundTag", "dns-out");
-        rules.put(dnsRule);
-
-        JSONObject dohDomainRule = new JSONObject();
-        dohDomainRule.put("type", "field");
-        JSONArray dohDomains = new JSONArray();
-        dohDomains.put("dns.google");
-        dohDomains.put("cloudflare-dns.com");
-        dohDomains.put("chrome.cloudflare-dns.com");
-        dohDomains.put("www.cloudflare-dns.com");
-        dohDomainRule.put("domain", dohDomains);
-        dohDomainRule.put("outboundTag", "vless-out");
-        rules.put(dohDomainRule);
-
-        JSONObject defaultRule = new JSONObject();
-        defaultRule.put("type", "field");
-        defaultRule.put("inboundTag", new JSONArray().put("socks-in"));
-        defaultRule.put("outboundTag", "vless-out");
-        rules.put(defaultRule);
-
-        routing.put("rules", rules);
-        root.put("routing", routing);
-
         File cfgFile = new File(ctx.getCacheDir(), "xray_client.json");
-        String jsonPretty = root.toString(2);
-        try (FileOutputStream fos = new FileOutputStream(cfgFile, false)) {
-            byte[] json = jsonPretty.getBytes(StandardCharsets.UTF_8);
-            fos.write(json);
-            fos.getFD().sync();
-        }
-        cfgFile.setReadable(true, false);
+        String jsonPretty = patchConfigForDoH(root.toString());
+        Files.write(cfgFile.toPath(), jsonPretty.getBytes(StandardCharsets.UTF_8), CREATE, TRUNCATE_EXISTING);
+        Os.chmod(cfgFile.getAbsolutePath(), 0644);
         Log.d(TAG, "xray client config at: " + cfgFile.getAbsolutePath());
-        try {
-            Os.chmod(cfgFile.getAbsolutePath(), 0644);
-        } catch (ErrnoException e) {
-            Log.w(TAG, "chmod config failed: " + e.getMessage(), e);
-        }
         Log.d(TAG, "dns-mode=DoH via dns-out; servers=[dns.google, cloudflare-dns.com]");
         if (jsonPretty.length() > 0) {
             int previewLen = Math.min(jsonPretty.length(), 2000);
             Log.d(TAG, "xray config preview: " + jsonPretty.substring(0, previewLen));
         }
         return cfgFile;
+    }
+
+    private static String patchConfigForDoH(String cfgJson) throws JSONException {
+        JSONObject root = new JSONObject(cfgJson);
+
+        JSONObject dns = new JSONObject();
+        JSONArray servers = new JSONArray();
+        servers.put("https+local://dns.google/dns-query");
+        servers.put("https+local://cloudflare-dns.com/dns-query");
+        dns.put("servers", servers);
+        dns.put("queryStrategy", "UseIPv4");
+        dns.put("detour", "vless-out");
+        root.put("dns", dns);
+
+        JSONArray inbounds = root.optJSONArray("inbounds");
+        if (inbounds == null) inbounds = new JSONArray();
+        boolean hasSocks = false;
+        for (int i = 0; i < inbounds.length(); i++) {
+            JSONObject in = inbounds.getJSONObject(i);
+            if ("socks".equals(in.optString("protocol"))) {
+                hasSocks = true;
+                in.put("tag", "socks-in");
+                JSONObject settings = in.optJSONObject("settings");
+                if (settings == null) settings = new JSONObject();
+                settings.put("udp", true);
+                in.put("settings", settings);
+
+                JSONObject sniffing = new JSONObject();
+                sniffing.put("enabled", true);
+                JSONArray dest = new JSONArray();
+                dest.put("http");
+                dest.put("tls");
+                dest.put("quic");
+                sniffing.put("destOverride", dest);
+                in.put("sniffing", sniffing);
+
+                if (!in.has("listen")) in.put("listen", "127.0.0.1");
+                if (!in.has("port")) in.put("port", 10808);
+            }
+        }
+        if (!hasSocks) {
+            JSONObject in = new JSONObject();
+            in.put("tag", "socks-in");
+            in.put("protocol", "socks");
+            in.put("listen", "127.0.0.1");
+            in.put("port", 10808);
+            JSONObject settings = new JSONObject().put("udp", true);
+            in.put("settings", settings);
+            JSONObject sniffing = new JSONObject()
+                    .put("enabled", true)
+                    .put("destOverride", new JSONArray().put("http").put("tls").put("quic"));
+            in.put("sniffing", sniffing);
+            inbounds.put(in);
+        }
+        root.put("inbounds", inbounds);
+
+        JSONArray outbounds = root.optJSONArray("outbounds");
+        if (outbounds == null) outbounds = new JSONArray();
+        java.util.Set<String> tags = new java.util.HashSet<>();
+        for (int i = 0; i < outbounds.length(); i++) {
+            tags.add(outbounds.getJSONObject(i).optString("tag"));
+        }
+        if (!tags.contains("dns-out")) outbounds.put(new JSONObject().put("tag", "dns-out").put("protocol", "dns"));
+        if (!tags.contains("direct")) outbounds.put(new JSONObject().put("tag", "direct").put("protocol", "freedom"));
+        root.put("outbounds", outbounds);
+
+        JSONObject routing = root.optJSONObject("routing");
+        if (routing == null) routing = new JSONObject();
+        JSONArray rules = routing.optJSONArray("rules");
+        if (rules == null) rules = new JSONArray();
+
+        JSONArray newRules = new JSONArray();
+        newRules.put(new JSONObject()
+                .put("type", "field")
+                .put("inboundTag", new JSONArray().put("socks-in"))
+                .put("network", "udp")
+                .put("port", "53")
+                .put("outboundTag", "dns-out"));
+
+        JSONArray dohDomains = new JSONArray();
+        dohDomains.put("dns.google");
+        dohDomains.put("cloudflare-dns.com");
+        dohDomains.put("chrome.cloudflare-dns.com");
+        dohDomains.put("www.cloudflare-dns.com");
+        newRules.put(new JSONObject()
+                .put("type", "field")
+                .put("domain", dohDomains)
+                .put("outboundTag", "vless-out"));
+
+        newRules.put(new JSONObject()
+                .put("type", "field")
+                .put("inboundTag", new JSONArray().put("socks-in"))
+                .put("outboundTag", "vless-out"));
+
+        for (int i = 0; i < rules.length(); i++) {
+            newRules.put(rules.get(i));
+        }
+        routing.put("domainStrategy", "AsIs");
+        routing.put("rules", newRules);
+        root.put("routing", routing);
+
+        return root.toString();
     }
 
     private static boolean isPlaceholder(File file) {
@@ -357,6 +350,33 @@ public class XrayRunner {
         t2s = null;
         destroyProcess(xray, "xray");
         xray = null;
+    }
+
+    private Process startTun2Socks(File t2sFile, ParcelFileDescriptor pfd) throws Exception {
+        final int tunFd = pfd.getFd();
+        final FileDescriptor fdObj = pfd.getFileDescriptor();
+        final int before = Os.fcntlInt(fdObj, OsConstants.F_GETFD, 0);
+        if ((before & OsConstants.FD_CLOEXEC) != 0) {
+            Os.fcntlInt(fdObj, OsConstants.F_SETFD, before & ~OsConstants.FD_CLOEXEC);
+        }
+        final int after = Os.fcntlInt(fdObj, OsConstants.F_GETFD, 0);
+        Log.d(TAG, "tunFd flags before=" + before + " after=" + after);
+
+        List<String> t2sArgs = Arrays.asList(
+                t2sFile.getAbsolutePath(),
+                "-device", "fd://" + tunFd,
+                "-mtu", "1500",
+                "-proxy", "socks5://127.0.0.1:10808",
+                "-loglevel", "info",
+                "-tcp-auto-tuning"
+        );
+        Log.d(TAG, "Starting tun2socks: " + t2sArgs);
+
+        ProcessBuilder pb = new ProcessBuilder(t2sArgs);
+        pb.redirectErrorStream(true);
+        Process proc = pb.start();
+        pipeProcess("Tun2SocksProc", proc);
+        return proc;
     }
 
     private void destroyProcess(Process process, String name) {
