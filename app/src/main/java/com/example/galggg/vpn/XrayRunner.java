@@ -258,8 +258,8 @@ public class XrayRunner {
         JSONObject dnsRule = new JSONObject();
         dnsRule.put("type", "field");
         dnsRule.put("inboundTag", new JSONArray().put("socks-in"));
-        dnsRule.put("port", "53");
         dnsRule.put("network", "udp");
+        dnsRule.put("port", "53");
         dnsRule.put("outboundTag", "dns-out");
         rules.put(dnsRule);
 
