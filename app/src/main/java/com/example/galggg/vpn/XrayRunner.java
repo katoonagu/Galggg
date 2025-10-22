@@ -74,7 +74,6 @@ public class XrayRunner {
         Log.d(TAG, "tunFd flags before=" + beforeFlags + " after=" + afterFlags);
 
         File cfg = writeXrayConfig(v);
-        Log.d(TAG, "dns-mode=DoH via dns-out; UDP/53 routed internally");
 
         ProcessBuilder pbX = new ProcessBuilder(
                 xrayFile.getAbsolutePath(),
@@ -172,10 +171,23 @@ public class XrayRunner {
 
         JSONObject dns = new JSONObject();
         JSONArray dnsServers = new JSONArray();
-        dnsServers.put("https://1.1.1.1/dns-query");
-        dnsServers.put("https://8.8.8.8/dns-query");
+        JSONObject dohGoogle = new JSONObject();
+        dohGoogle.put("address", "https://dns.google/dns-query");
+        dohGoogle.put("skipFallback", true);
+        dohGoogle.put("detour", "vless-out");
+        dnsServers.put(dohGoogle);
+        JSONObject dohCloudflare = new JSONObject();
+        dohCloudflare.put("address", "https://cloudflare-dns.com/dns-query");
+        dohCloudflare.put("skipFallback", true);
+        dohCloudflare.put("detour", "vless-out");
+        dnsServers.put(dohCloudflare);
+        JSONObject dohLocal = new JSONObject();
+        dohLocal.put("address", "localhost");
+        dnsServers.put(dohLocal);
         dns.put("servers", dnsServers);
-        dns.put("queryStrategy", "UseIPv4");
+        dns.put("queryStrategy", "UseIP");
+        dns.put("disableCache", false);
+        dns.put("tag", "builtin-dns");
         root.put("dns", dns);
 
         JSONObject inbound = new JSONObject();
@@ -248,7 +260,7 @@ public class XrayRunner {
         root.put("outbounds", outbounds);
 
         JSONObject routing = new JSONObject();
-        routing.put("domainStrategy", "AsIs");
+        routing.put("domainStrategy", "IPIfNonMatch");
         JSONArray rules = new JSONArray();
 
         JSONObject dnsRule = new JSONObject();
@@ -269,13 +281,19 @@ public class XrayRunner {
         root.put("routing", routing);
 
         File cfgFile = new File(ctx.getCacheDir(), "xray_client.json");
+        String jsonPretty = root.toString(2);
         try (FileOutputStream fos = new FileOutputStream(cfgFile, false)) {
-            byte[] json = root.toString(2).getBytes(StandardCharsets.UTF_8);
+            byte[] json = jsonPretty.getBytes(StandardCharsets.UTF_8);
             fos.write(json);
             fos.getFD().sync();
         }
         cfgFile.setReadable(true, false);
         Log.d(TAG, "xray client config at: " + cfgFile.getAbsolutePath());
+        Log.d(TAG, "dns-mode=DoH via dns-out; servers=[dns.google, cloudflare-dns.com]");
+        if (jsonPretty.length() > 0) {
+            int previewLen = Math.min(jsonPretty.length(), 2000);
+            Log.d(TAG, "xray config preview: " + jsonPretty.substring(0, previewLen));
+        }
         return cfgFile;
     }
 
