@@ -154,21 +154,19 @@ public class XrayRunner {
         JSONObject log = new JSONObject();
         log.put("loglevel", BuildConfig.DEBUG ? "debug" : "warning");
         if (BuildConfig.DEBUG) {
-            // let XRAY stream access logs to stdout so we can see them in Logcat
+            // push access/error streams to Logcat via stdout/stderr
             log.put("access", "/dev/stdout");
-            // optionally send errors to stderr as well
-            // log.put("error", "/dev/stderr");
+            log.put("error", "/dev/stderr");
         }
         root.put("log", log);
         // -----------------------------------------------------------------
 
-        JSONObject dns = new JSONObject();
-        JSONArray dnsServers = new JSONArray();
-        dnsServers.put("https+local://dns.google/dns-query");
-        dnsServers.put("https+local://cloudflare-dns.com/dns-query");
-        dns.put("servers", dnsServers);
-        dns.put("queryStrategy", "UseIPv4");
-        dns.put("detour", "vless-out");
+        JSONObject dns = new JSONObject()
+                .put("servers", new JSONArray()
+                        .put("https+local://dns.google/dns-query")
+                        .put("https+local://cloudflare-dns.com/dns-query"))
+                .put("queryStrategy", "UseIPv4")
+                .put("detour", "vless-out");
         root.put("dns", dns);
 
         JSONObject inbound = new JSONObject();
@@ -252,7 +250,7 @@ public class XrayRunner {
 
         JSONArray rules = new JSONArray();
 
-        // 1) DNS from socks-in: UDP:53 -> dns-out
+        // 1) DNS: socks-in UDP:53 -> dns-out
         rules.put(new JSONObject()
                 .put("type", "field")
                 .put("inboundTag", new JSONArray().put("socks-in"))
@@ -260,14 +258,14 @@ public class XrayRunner {
                 .put("port", "53")
                 .put("outboundTag", "dns-out"));
 
-        // 2) All remaining UDP from socks-in -> block (cuts QUIC/UDP-443)
+        // 2) All other UDP from socks-in -> block (to kill QUIC)
         rules.put(new JSONObject()
                 .put("type", "field")
                 .put("inboundTag", new JSONArray().put("socks-in"))
                 .put("network", "udp")
                 .put("outboundTag", "block"));
 
-        // 3) Everything else (TCP etc.) from socks-in -> vless-out
+        // 3) The rest (mostly TCP) -> vless-out
         rules.put(new JSONObject()
                 .put("type", "field")
                 .put("inboundTag", new JSONArray().put("socks-in"))
