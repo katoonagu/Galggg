@@ -8,6 +8,8 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
 
+import com.example.galggg.BuildConfig;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -38,7 +40,7 @@ public class XrayRunner {
 
     private Process xray;
     private Process t2s;
-    private ParcelFileDescriptor heldTunPfd; // держим открытым до stopAll()
+    private ParcelFileDescriptor heldTunPfd; // keep the TUN fd open until stopAll()
     private final AtomicBoolean stopping = new AtomicBoolean(false);
 
     public XrayRunner(Context context, CrashListener listener) {
@@ -148,9 +150,17 @@ public class XrayRunner {
     private File writeXrayConfig(VlessLink v) throws Exception {
         JSONObject root = new JSONObject();
 
+        // ----- logging block (DEBUG -> verbose with access to stdout) -----
         JSONObject log = new JSONObject();
-        log.put("loglevel", "warning");
+        log.put("loglevel", BuildConfig.DEBUG ? "debug" : "warning");
+        if (BuildConfig.DEBUG) {
+            // let XRAY stream access logs to stdout so we can see them in Logcat
+            log.put("access", "/dev/stdout");
+            // optionally send errors to stderr as well
+            // log.put("error", "/dev/stderr");
+        }
         root.put("log", log);
+        // -----------------------------------------------------------------
 
         JSONObject dns = new JSONObject();
         JSONArray dnsServers = new JSONArray();
@@ -181,7 +191,9 @@ public class XrayRunner {
         JSONObject user = new JSONObject();
         user.put("id", v.uuid);
         user.put("encryption", "none");
-        if (v.flow != null) user.put("flow", v.flow);
+        if (v.flow != null) {
+            user.put("flow", v.flow);
+        }
 
         JSONArray users = new JSONArray();
         users.put(user);
@@ -203,10 +215,14 @@ public class XrayRunner {
         JSONObject reality = new JSONObject();
         reality.put("serverName", v.sni != null ? v.sni : "www.cloudflare.com");
         reality.put("publicKey", v.pbk);
-        if (v.sid != null) reality.put("shortId", v.sid);
+        if (v.sid != null) {
+            reality.put("shortId", v.sid);
+        }
         reality.put("fingerprint", v.fp != null ? v.fp : "chrome");
         stream.put("realitySettings", reality);
-        if (v.type != null) stream.put("type", v.type);
+        if (v.type != null) {
+            stream.put("type", v.type);
+        }
 
         JSONObject outbound = new JSONObject();
         outbound.put("tag", "vless-out");
@@ -234,43 +250,33 @@ public class XrayRunner {
 
         root.put("outbounds", outbounds);
 
-        JSONObject routing = new JSONObject();
-        routing.put("domainStrategy", "IPIfNonMatch");
         JSONArray rules = new JSONArray();
 
-        JSONObject dnsRule = new JSONObject();
-        dnsRule.put("type", "field");
-        dnsRule.put("inboundTag", new JSONArray().put("socks-in"));
-        dnsRule.put("network", "udp");
-        dnsRule.put("port", "53");
-        dnsRule.put("outboundTag", "dns-out");
-        rules.put(dnsRule);
+        // 1) DNS from socks-in: UDP:53 -> dns-out
+        rules.put(new JSONObject()
+                .put("type", "field")
+                .put("inboundTag", new JSONArray().put("socks-in"))
+                .put("network", "udp")
+                .put("port", "53")
+                .put("outboundTag", "dns-out"));
 
-        JSONObject udpBlockRule = new JSONObject();
-        udpBlockRule.put("type", "field");
-        udpBlockRule.put("inboundTag", new JSONArray().put("socks-in"));
-        udpBlockRule.put("network", "udp");
-        udpBlockRule.put("outboundTag", "block");
-        rules.put(udpBlockRule);
+        // 2) All remaining UDP from socks-in -> block (cuts QUIC/UDP-443)
+        rules.put(new JSONObject()
+                .put("type", "field")
+                .put("inboundTag", new JSONArray().put("socks-in"))
+                .put("network", "udp")
+                .put("outboundTag", "block"));
 
-        JSONObject dohDomainRule = new JSONObject();
-        dohDomainRule.put("type", "field");
-        JSONArray dohDomains = new JSONArray();
-        dohDomains.put("dns.google");
-        dohDomains.put("cloudflare-dns.com");
-        dohDomains.put("chrome.cloudflare-dns.com");
-        dohDomains.put("www.cloudflare-dns.com");
-        dohDomainRule.put("domain", dohDomains);
-        dohDomainRule.put("outboundTag", "vless-out");
-        rules.put(dohDomainRule);
+        // 3) Everything else (TCP etc.) from socks-in -> vless-out
+        rules.put(new JSONObject()
+                .put("type", "field")
+                .put("inboundTag", new JSONArray().put("socks-in"))
+                .put("outboundTag", "vless-out"));
 
-        JSONObject defaultRule = new JSONObject();
-        defaultRule.put("type", "field");
-        defaultRule.put("inboundTag", new JSONArray().put("socks-in"));
-        defaultRule.put("outboundTag", "vless-out");
-        rules.put(defaultRule);
+        JSONObject routing = new JSONObject()
+                .put("domainStrategy", "AsIs")
+                .put("rules", rules);
 
-        routing.put("rules", rules);
         root.put("routing", routing);
 
         File cfgFile = new File(ctx.getCacheDir(), "xray_client.json");
@@ -377,3 +383,4 @@ public class XrayRunner {
         }
     }
 }
+
