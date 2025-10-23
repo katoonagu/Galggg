@@ -13,12 +13,12 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.lang.ProcessBuilder.Redirect;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -87,31 +87,43 @@ public class XrayRunner {
         watchProcess("tun2socks", this.t2s);
     }
 
-    private Process launchTun2SocksViaStdin(String t2sPath, int mtu, ParcelFileDescriptor tunPfd) throws Exception {
-        final int tunFd = tunPfd.getFd();
-
-        final int savedStdin = Os.dup(OsConstants.STDIN_FILENO);
+    /** Launch tun2socks by passing the TUN fd as STDIN (fd 0) to survive CLOEXEC_DEFAULT.
+     *  We clear FD_CLOEXEC on the tun fd, dup2(tun, 0), exec, then restore original stdin.
+     */
+    private Process launchTun2SocksViaStdin(String t2sPath, int mtu, ParcelFileDescriptor tunPfd) throws IOException {
+        final FileDescriptor tunFd = tunPfd.getFileDescriptor();
         try {
-            Os.dup2(tunFd, OsConstants.STDIN_FILENO);
-            Os.fcntlInt(OsConstants.STDIN_FILENO, OsConstants.F_SETFD, 0);
+            // Clear FD_CLOEXEC on TUN, log before/after
+            int before = Os.fcntlInt(tunFd, OsConstants.F_GETFD, 0);
+            int after  = (before & ~OsConstants.FD_CLOEXEC);
+            if (after != before) {
+                Os.fcntlInt(tunFd, OsConstants.F_SETFD, after);
+            }
+            android.util.Log.d(TAG, "tunFd flags before=" + before + " after=" + after);
 
-            List<String> t2sArgs = Arrays.asList(
-                    t2sPath,
-                    "-device", "fd://0",
-                    "-mtu", String.valueOf(mtu),
-                    "-proxy", "socks5://127.0.0.1:10808",
-                    "-loglevel", "info",
-                    "-tcp-auto-tuning"
-            );
+            FileDescriptor oldIn = Os.dup(FileDescriptor.in);
+            try {
+                Os.dup2(tunFd, OsConstants.STDIN_FILENO);
 
-            Log.d(TAG, "Starting tun2socks: " + t2sArgs);
+                List<String> args = Arrays.asList(
+                        t2sPath,
+                        "-device", "fd://0",
+                        "-mtu", String.valueOf(mtu),
+                        "-proxy", "socks5://127.0.0.1:10808",
+                        "-loglevel", "info",
+                        "-tcp-auto-tuning"
+                );
+                android.util.Log.d(TAG, "Starting tun2socks: " + args);
 
-            ProcessBuilder pb = new ProcessBuilder(t2sArgs);
-            pb.redirectInput(Redirect.INHERIT);
-            return pb.start();
-        } finally {
-            Os.dup2(savedStdin, OsConstants.STDIN_FILENO);
-            Os.close(savedStdin);
+                ProcessBuilder pb = new ProcessBuilder(args);
+                pb.redirectErrorStream(false); // keep stdout/stderr for existing gobblers
+                return pb.start();
+            } finally {
+                try { Os.dup2(oldIn, OsConstants.STDIN_FILENO); } catch (ErrnoException ignored) {}
+                try { Os.close(oldIn); } catch (ErrnoException ignored) {}
+            }
+        } catch (ErrnoException e) {
+            throw new IOException("Failed to launch tun2socks via stdin", e);
         }
     }
 
@@ -234,6 +246,13 @@ public class XrayRunner {
         dnsRule.put("outboundTag", "dns-out");
         rules.put(dnsRule);
 
+        JSONObject udpBlockRule = new JSONObject();
+        udpBlockRule.put("type", "field");
+        udpBlockRule.put("inboundTag", new JSONArray().put("socks-in"));
+        udpBlockRule.put("network", "udp");
+        udpBlockRule.put("outboundTag", "block");
+        rules.put(udpBlockRule);
+
         JSONObject dohDomainRule = new JSONObject();
         dohDomainRule.put("type", "field");
         JSONArray dohDomains = new JSONArray();
@@ -269,6 +288,7 @@ public class XrayRunner {
             Log.w(TAG, "chmod config failed: " + e.getMessage(), e);
         }
         Log.d(TAG, "dns-mode=DoH via dns-out; servers=[dns.google, cloudflare-dns.com]");
+        Log.d(TAG, "routing: UDP except 53 is blocked to force TCP fallback (QUIC disabled)");
         if (jsonPretty.length() > 0) {
             int previewLen = Math.min(jsonPretty.length(), 2000);
             Log.d(TAG, "xray config preview: " + jsonPretty.substring(0, previewLen));
