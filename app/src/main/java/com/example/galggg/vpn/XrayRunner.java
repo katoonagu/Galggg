@@ -8,10 +8,8 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
 
-import com.example.galggg.BuildConfig;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
+import com.example.galggg.provision.ProvisionConstants;
+import com.example.galggg.provision.XrayClientConfigBuilder;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -48,7 +46,7 @@ public class XrayRunner {
         this.crashListener = listener;
     }
 
-    public void startAll(ParcelFileDescriptor tunPfd, VlessLink v) throws Exception {
+    public void startAll(ParcelFileDescriptor tunPfd) throws Exception {
         stopAll();
         stopping.set(false);
 
@@ -65,13 +63,12 @@ public class XrayRunner {
         }
         this.heldTunPfd = tunPfd;
 
-        File cfg = writeXrayConfig(v);
+        File cfg = writeXrayConfig();
 
         ProcessBuilder pbX = new ProcessBuilder(
                 xrayFile.getAbsolutePath(),
                 "run",
-                "-c", cfg.getAbsolutePath(),
-                "-format", "json"
+                "-config", cfg.getAbsolutePath()
         );
         pbX.redirectErrorStream(true);
         Process xp;
@@ -111,7 +108,7 @@ public class XrayRunner {
                         t2sPath,
                         "-device", "fd://0",
                         "-mtu", String.valueOf(mtu),
-                        "-proxy", "socks5://127.0.0.1:10808",
+                        "-proxy", "socks5://127.0.0.1:" + ProvisionConstants.SOCKS_PORT,
                         "-loglevel", "info",
                         "-tcp-auto-tuning"
                 );
@@ -147,156 +144,23 @@ public class XrayRunner {
         }
     }
 
-    private File writeXrayConfig(VlessLink v) throws Exception {
-        JSONObject root = new JSONObject();
-
-        // ----- logging block (DEBUG -> verbose with access to stdout) -----
-        JSONObject log = new JSONObject();
-        log.put("loglevel", BuildConfig.DEBUG ? "debug" : "warning");
-        if (BuildConfig.DEBUG) {
-            // push access/error streams to Logcat via stdout/stderr
-            log.put("access", "/dev/stdout");
-            log.put("error", "/dev/stderr");
-        }
-        root.put("log", log);
-        // -----------------------------------------------------------------
-
-        JSONObject dns = new JSONObject()
-                .put("servers", new JSONArray()
-                        .put("https+local://dns.google/dns-query")
-                        .put("https+local://cloudflare-dns.com/dns-query"))
-                .put("queryStrategy", "UseIPv4")
-                .put("detour", "vless-out");
-        root.put("dns", dns);
-
-        JSONObject inbound = new JSONObject();
-        inbound.put("tag", "socks-in");
-        inbound.put("listen", "127.0.0.1");
-        inbound.put("port", 10808);
-        inbound.put("protocol", "socks");
-        JSONObject inboundSettings = new JSONObject();
-        inboundSettings.put("udp", true);
-        inboundSettings.put("auth", "noauth");
-        inbound.put("settings", inboundSettings);
-        JSONObject sniffing = new JSONObject();
-        sniffing.put("enabled", true);
-        sniffing.put("destOverride", new JSONArray().put("http").put("tls").put("quic"));
-        inbound.put("sniffing", sniffing);
-        JSONArray inbounds = new JSONArray();
-        inbounds.put(inbound);
-        root.put("inbounds", inbounds);
-
-        JSONObject user = new JSONObject();
-        user.put("id", v.uuid);
-        user.put("encryption", "none");
-        if (v.flow != null) {
-            user.put("flow", v.flow);
+    private File writeXrayConfig() throws Exception {
+        String cfg = XrayClientConfigBuilder.build();
+        if (cfg.length() > 0) {
+            int previewLen = Math.min(cfg.length(), 256);
+            Log.d(TAG, "xray config preview: " + cfg.substring(0, previewLen));
         }
 
-        JSONArray users = new JSONArray();
-        users.put(user);
-
-        JSONObject vnextItem = new JSONObject();
-        vnextItem.put("address", v.host);
-        vnextItem.put("port", v.port);
-        vnextItem.put("users", users);
-
-        JSONArray vnextArr = new JSONArray();
-        vnextArr.put(vnextItem);
-
-        JSONObject outSettings = new JSONObject();
-        outSettings.put("vnext", vnextArr);
-
-        JSONObject stream = new JSONObject();
-        stream.put("network", "tcp");
-        stream.put("security", "reality");
-        JSONObject reality = new JSONObject();
-        reality.put("serverName", v.sni != null ? v.sni : "www.cloudflare.com");
-        reality.put("publicKey", v.pbk);
-        if (v.sid != null) {
-            reality.put("shortId", v.sid);
-        }
-        reality.put("fingerprint", v.fp != null ? v.fp : "chrome");
-        stream.put("realitySettings", reality);
-        if (v.type != null) {
-            stream.put("type", v.type);
+        File dir = new File(ctx.getFilesDir(), ProvisionConstants.XRAY_DIR);
+        if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory()) {
+            throw new IOException("Failed to create Xray config dir: " + dir.getAbsolutePath());
         }
 
-        JSONObject outbound = new JSONObject();
-        outbound.put("tag", "vless-out");
-        outbound.put("protocol", "vless");
-        outbound.put("settings", outSettings);
-        outbound.put("streamSettings", stream);
-
-        JSONArray outbounds = new JSONArray();
-        outbounds.put(outbound);
-
-        JSONObject dnsOut = new JSONObject();
-        dnsOut.put("protocol", "dns");
-        dnsOut.put("tag", "dns-out");
-        outbounds.put(dnsOut);
-
-        JSONObject freedom = new JSONObject();
-        freedom.put("protocol", "freedom");
-        freedom.put("tag", "direct");
-        outbounds.put(freedom);
-
-        JSONObject block = new JSONObject();
-        block.put("protocol", "blackhole");
-        block.put("tag", "block");
-        outbounds.put(block);
-
-        root.put("outbounds", outbounds);
-
-        JSONArray rules = new JSONArray();
-
-        // 1) DNS: UDP/53 из socks-in -> dns-out
-        rules.put(new JSONObject()
-                .put("type", "field")
-                .put("inboundTag", new JSONArray().put("socks-in"))
-                .put("network", "udp")
-                .put("port", "53")
-                .put("outboundTag", "dns-out"));
-
-        // 2) Любой прочий UDP из socks-in -> block (глушим QUIC/UDP-443 и т.п.)
-        rules.put(new JSONObject()
-                .put("type", "field")
-                .put("inboundTag", new JSONArray().put("socks-in"))
-                .put("network", "udp")
-                .put("outboundTag", "block"));
-
-        // 3) Остальной трафик из socks-in (ТОЛЬКО TCP) -> vless-out
-        rules.put(new JSONObject()
-                .put("type", "field")
-                .put("inboundTag", new JSONArray().put("socks-in"))
-                .put("network", "tcp")
-                .put("outboundTag", "vless-out"));
-
-        JSONObject routing = new JSONObject()
-                .put("domainStrategy", "AsIs")
-                .put("rules", rules);
-
-        root.put("routing", routing);
-
-        File cfgFile = new File(ctx.getCacheDir(), "xray_client.json");
-        String jsonPretty = root.toString(2);
+        File cfgFile = new File(dir, ProvisionConstants.XRAY_CFG);
         try (FileOutputStream fos = new FileOutputStream(cfgFile, false)) {
-            byte[] json = jsonPretty.getBytes(StandardCharsets.UTF_8);
+            byte[] json = cfg.getBytes(StandardCharsets.UTF_8);
             fos.write(json);
             fos.getFD().sync();
-        }
-        cfgFile.setReadable(true, false);
-        Log.d(TAG, "xray client config at: " + cfgFile.getAbsolutePath());
-        try {
-            Os.chmod(cfgFile.getAbsolutePath(), 0644);
-        } catch (ErrnoException e) {
-            Log.w(TAG, "chmod config failed: " + e.getMessage(), e);
-        }
-        Log.d(TAG, "dns-mode=DoH via dns-out; servers=[dns.google, cloudflare-dns.com]");
-        Log.d(TAG, "routing: UDP except 53 is blocked to force TCP fallback (QUIC disabled)");
-        if (jsonPretty.length() > 0) {
-            int previewLen = Math.min(jsonPretty.length(), 2000);
-            Log.d(TAG, "xray config preview: " + jsonPretty.substring(0, previewLen));
         }
         return cfgFile;
     }

@@ -73,13 +73,8 @@ public class GalgggVpnService extends VpnService {
             tun = newTun;
             Log.i("GalgggVpnService", "TUN established fd=" + tun.getFd());
 
-            String link = getSharedPreferences("vless_store", MODE_PRIVATE)
-                    .getString("vless_link", null);
-            VlessLink vl = VlessLink.parse(link);
-            if (vl == null) throw new IllegalStateException("VLESS link missing or invalid");
-
             runner = new XrayRunner(this, this::handleRunnerCrash);
-            runner.startAll(tun, vl);
+            runner.startAll(tun);
 
             running.set(true);
             ACTIVE.set(true);
