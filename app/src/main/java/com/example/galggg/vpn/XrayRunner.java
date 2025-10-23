@@ -250,7 +250,7 @@ public class XrayRunner {
 
         JSONArray rules = new JSONArray();
 
-        // 1) DNS: socks-in UDP:53 -> dns-out
+        // 1) DNS: UDP/53 из socks-in -> dns-out
         rules.put(new JSONObject()
                 .put("type", "field")
                 .put("inboundTag", new JSONArray().put("socks-in"))
@@ -258,17 +258,18 @@ public class XrayRunner {
                 .put("port", "53")
                 .put("outboundTag", "dns-out"));
 
-        // 2) All other UDP from socks-in -> block (to kill QUIC)
+        // 2) Любой прочий UDP из socks-in -> block (глушим QUIC/UDP-443 и т.п.)
         rules.put(new JSONObject()
                 .put("type", "field")
                 .put("inboundTag", new JSONArray().put("socks-in"))
                 .put("network", "udp")
                 .put("outboundTag", "block"));
 
-        // 3) The rest (mostly TCP) -> vless-out
+        // 3) Остальной трафик из socks-in (ТОЛЬКО TCP) -> vless-out
         rules.put(new JSONObject()
                 .put("type", "field")
                 .put("inboundTag", new JSONArray().put("socks-in"))
+                .put("network", "tcp")
                 .put("outboundTag", "vless-out"));
 
         JSONObject routing = new JSONObject()
