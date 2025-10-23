@@ -87,6 +87,34 @@ public class XrayRunner {
         watchProcess("tun2socks", this.t2s);
     }
 
+    private Process launchTun2SocksViaStdin(String t2sPath, int mtu, ParcelFileDescriptor tunPfd) throws Exception {
+        final int tunFd = tunPfd.getFd();
+
+        final int savedStdin = Os.dup(OsConstants.STDIN_FILENO);
+        try {
+            Os.dup2(tunFd, OsConstants.STDIN_FILENO);
+            Os.fcntlInt(OsConstants.STDIN_FILENO, OsConstants.F_SETFD, 0);
+
+            List<String> t2sArgs = Arrays.asList(
+                    t2sPath,
+                    "-device", "fd://0",
+                    "-mtu", String.valueOf(mtu),
+                    "-proxy", "socks5://127.0.0.1:10808",
+                    "-loglevel", "info",
+                    "-tcp-auto-tuning"
+            );
+
+            Log.d(TAG, "Starting tun2socks: " + t2sArgs);
+
+            ProcessBuilder pb = new ProcessBuilder(t2sArgs);
+            pb.redirectInput(Redirect.INHERIT);
+            return pb.start();
+        } finally {
+            Os.dup2(savedStdin, OsConstants.STDIN_FILENO);
+            Os.close(savedStdin);
+        }
+    }
+
     private void ensureBinaryExists(File file) throws IOException {
         if (!file.exists()) {
             String msg = "Native binary missing: " + file.getAbsolutePath();
@@ -300,6 +328,13 @@ public class XrayRunner {
         t2s = null;
         destroyProcess(xray, "xray");
         xray = null;
+        if (heldTunPfd != null) {
+            try {
+                heldTunPfd.close();
+            } catch (Exception ignore) {
+            }
+            heldTunPfd = null;
+        }
     }
 
     private void destroyProcess(Process process, String name) {
