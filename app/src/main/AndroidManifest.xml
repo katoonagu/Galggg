@@ -27,7 +27,6 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="34">
 
-        <!--
         <service
             android:name=".vpn.GalgggVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
@@ -37,7 +36,6 @@
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
-        -->
 
         <activity
             android:name=".MainActivity"

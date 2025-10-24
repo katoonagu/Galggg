@@ -13,7 +13,9 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
+import com.example.galggg.provision.LocalProvision;
 import com.example.galggg.provision.ProvisionConstants;
+import com.example.galggg.provision.ProvisionData;
 import com.example.galggg.vpn.shadows.ShadowOs;
 
 import java.io.File;
@@ -30,10 +32,11 @@ public class XrayRunnerRoutingTest {
         Context ctx = ApplicationProvider.getApplicationContext();
         XrayRunner runner = new XrayRunner(ctx, null);
 
-        Method write = XrayRunner.class.getDeclaredMethod("writeXrayConfig");
+        Method write = XrayRunner.class.getDeclaredMethod("writeXrayConfig", ProvisionData.class);
         write.setAccessible(true);
 
-        File cfgFile = (File) write.invoke(runner);
+        ProvisionData provision = LocalProvision.get();
+        File cfgFile = (File) write.invoke(runner, provision);
         String json = new String(Files.readAllBytes(cfgFile.toPath()), StandardCharsets.UTF_8);
         Log.d("XrayRunnerRoutingTest", "config preview: " + json);
         System.out.println("xray client config at: " + cfgFile.getAbsolutePath());

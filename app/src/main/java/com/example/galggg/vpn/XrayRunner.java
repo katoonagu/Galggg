@@ -9,6 +9,7 @@ import android.system.OsConstants;
 import android.util.Log;
 
 import com.example.galggg.provision.ProvisionConstants;
+import com.example.galggg.provision.ProvisionData;
 import com.example.galggg.provision.XrayClientConfigBuilder;
 
 import java.io.BufferedReader;
@@ -46,7 +47,7 @@ public class XrayRunner {
         this.crashListener = listener;
     }
 
-    public void startAll(ParcelFileDescriptor tunPfd) throws Exception {
+    public void startAll(ParcelFileDescriptor tunPfd, ProvisionData data) throws Exception {
         stopAll();
         stopping.set(false);
 
@@ -63,7 +64,7 @@ public class XrayRunner {
         }
         this.heldTunPfd = tunPfd;
 
-        File cfg = writeXrayConfig();
+        File cfg = writeXrayConfig(data);
 
         ProcessBuilder pbX = new ProcessBuilder(
                 xrayFile.getAbsolutePath(),
@@ -144,8 +145,8 @@ public class XrayRunner {
         }
     }
 
-    private File writeXrayConfig() throws Exception {
-        String cfg = XrayClientConfigBuilder.build();
+    private File writeXrayConfig(ProvisionData data) throws Exception {
+        String cfg = XrayClientConfigBuilder.build(data);
         if (cfg.length() > 0) {
             int previewLen = Math.min(cfg.length(), 256);
             Log.d(TAG, "xray config preview: " + cfg.substring(0, previewLen));

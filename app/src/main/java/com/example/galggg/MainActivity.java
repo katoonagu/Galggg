@@ -9,6 +9,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -25,10 +26,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.example.galggg.link.ExternalClients;
 import com.example.galggg.link.VlessLinkBuilder;
 import com.example.galggg.provision.LocalProvision;
 import com.example.galggg.provision.ProvisionData;
+import com.example.galggg.vpn.GalgggVpnService;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -50,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_PICK = 2001;
     private static final int REQ_PERM = 2002;
+    private static final int REQ_VPN = 3001;
     private static final int REQ_NOTIF = 3003;
 
     private TextView tvStatus;
@@ -79,6 +81,13 @@ public class MainActivity extends AppCompatActivity {
 
         if (btnConnect != null) {
             btnConnect.setOnClickListener(v -> onConnectClickedReal());
+            btnConnect.setOnLongClickListener(v -> {
+                if (GalgggVpnService.isActive()) {
+                    stopVpnService();
+                    return true;
+                }
+                return false;
+            });
         }
 
         requestNotificationPermissionIfNeeded();
@@ -90,14 +99,11 @@ public class MainActivity extends AppCompatActivity {
             startPickFlow();
             return;
         }
-        String vless = getSavedVless();
-        if (vless == null || vless.isEmpty()) {
-            setStatus("Profile missing. Please import the QR again", true);
-            startPickFlow();
+        if (GalgggVpnService.isActive()) {
+            stopVpnService();
             return;
         }
-        setStatus("Opening external client...", false);
-        ExternalClients.openProfile(this, vless);
+        launchVpn();
     }
 
     private boolean hasVless() {
@@ -176,6 +182,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_VPN) {
+            if (resultCode == RESULT_OK) {
+                startVpnService();
+            } else {
+                setStatus("VPN permission denied", true);
+            }
+            return;
+        }
         if (requestCode == REQ_PICK && resultCode == Activity.RESULT_OK && data != null) {
             Uri uri = data.getData();
             if (uri != null) {
@@ -225,7 +239,7 @@ public class MainActivity extends AppCompatActivity {
                     return new ProvisionResult(false, "Error: failed to upload ZIP to Telegram", null);
                 }
 
-                return new ProvisionResult(true, "Done: profile opened in external client", link);
+                return new ProvisionResult(true, "Provisioning complete. Requesting VPN permission...", link);
             } catch (Exception e) {
                 return new ProvisionResult(false, "Error: " + e.getMessage(), null);
             }
@@ -247,8 +261,8 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             setStatus(result.message, !result.success);
-            if (result.success && result.vlessLink != null) {
-                ExternalClients.openProfile(MainActivity.this, result.vlessLink);
+            if (result.success) {
+                launchVpn();
             }
         }
     }
@@ -406,6 +420,38 @@ public class MainActivity extends AppCompatActivity {
                 .putString("vless_link", vless)
                 .putString("uuid", uuid)
                 .apply();
+    }
+
+    private void launchVpn() {
+        setStatus("Requesting VPN permission...", false);
+        Intent prepare = VpnService.prepare(this);
+        if (prepare != null) {
+            startActivityForResult(prepare, REQ_VPN);
+        } else {
+            startVpnService();
+        }
+    }
+
+    private void startVpnService() {
+        Intent intent = new Intent(this, GalgggVpnService.class);
+        intent.setAction(GalgggVpnService.ACTION_START);
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+        setStatus("VPN starting...", false);
+    }
+
+    private void stopVpnService() {
+        Intent intent = new Intent(this, GalgggVpnService.class);
+        intent.setAction(GalgggVpnService.ACTION_STOP);
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+        setStatus("VPN stopped", false);
     }
 
     private void setProgress(boolean enabled) {

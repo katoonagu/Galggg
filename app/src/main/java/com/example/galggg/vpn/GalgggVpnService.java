@@ -15,6 +15,8 @@ import android.util.Log;
 import androidx.core.app.NotificationCompat;
 
 import com.example.galggg.R;
+import com.example.galggg.provision.LocalProvision;
+import com.example.galggg.provision.ProvisionData;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -73,8 +75,9 @@ public class GalgggVpnService extends VpnService {
             tun = newTun;
             Log.i("GalgggVpnService", "TUN established fd=" + tun.getFd());
 
+            ProvisionData provision = LocalProvision.get();
             runner = new XrayRunner(this, this::handleRunnerCrash);
-            runner.startAll(tun);
+            runner.startAll(tun, provision);
 
             running.set(true);
             ACTIVE.set(true);
