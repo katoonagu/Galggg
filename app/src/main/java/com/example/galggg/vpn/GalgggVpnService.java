@@ -29,6 +29,7 @@ public class GalgggVpnService extends VpnService {
 
     private ParcelFileDescriptor tunPfd;
     private int tunFdInt = -1;
+    private ParcelFileDescriptor tunDupPfd;
 
     public static boolean isActive() {
         return ACTIVE.get();
@@ -48,14 +49,14 @@ public class GalgggVpnService extends VpnService {
             }
             tunPfd = null;
         }
-        if (tunFdInt >= 0) {
-            int currentFd = tunFdInt;
-            tunFdInt = -1;
+        if (tunDupPfd != null) {
             try {
-                ParcelFileDescriptor.adoptFd(currentFd).close();
+                tunDupPfd.close();
             } catch (IOException ignore) {
             }
+            tunDupPfd = null;
         }
+        tunFdInt = -1;
         VpnService.Builder b = new VpnService.Builder();
         b.setSession("Galggg");
         b.addAddress("10.0.0.2", 32);
@@ -71,20 +72,16 @@ public class GalgggVpnService extends VpnService {
             throw new IllegalStateException("establish() returned null");
         }
 
-        ParcelFileDescriptor dupPfd = null;
-        try {
-            dupPfd = ParcelFileDescriptor.dup(tunPfd.getFileDescriptor());
-            Os.fcntlInt(dupPfd.getFileDescriptor(), OsConstants.F_SETFD, 0);
-            tunFdInt = dupPfd.detachFd();
-            dupPfd = null;
-        } finally {
-            if (dupPfd != null) {
-                try {
-                    dupPfd.close();
-                } catch (IOException ignore) {
-                }
-            }
-        }
+        tunDupPfd = ParcelFileDescriptor.dup(tunPfd.getFileDescriptor());
+        int rawFd = tunPfd.getFd();
+        int dupFd = tunDupPfd.getFd();
+        int fdFlagsBefore = Os.fcntlInt(tunDupPfd.getFileDescriptor(), OsConstants.F_GETFD, 0);
+        int clearedFlags = fdFlagsBefore & ~OsConstants.FD_CLOEXEC;
+        Os.fcntlInt(tunDupPfd.getFileDescriptor(), OsConstants.F_SETFD, clearedFlags);
+        int fdFlagsAfter = Os.fcntlInt(tunDupPfd.getFileDescriptor(), OsConstants.F_GETFD, 0);
+        Log.d("GalgggVpnService", "TUN fd raw=" + rawFd + " dup=" + dupFd
+                + " flagsBefore=" + fdFlagsBefore + " flagsAfter=" + fdFlagsAfter);
+        tunFdInt = dupFd;
     }
 
     @Override
@@ -161,10 +158,12 @@ public class GalgggVpnService extends VpnService {
             tunPfd = null;
         }
         try {
-            if (tunFdInt >= 0) {
-                ParcelFileDescriptor.adoptFd(tunFdInt).close();
+            if (tunDupPfd != null) {
+                tunDupPfd.close();
             }
         } catch (IOException ignore) {
+        } finally {
+            tunDupPfd = null;
         }
         tunFdInt = -1;
     }
