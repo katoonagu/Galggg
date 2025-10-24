@@ -20,4 +20,4 @@ Unit tests reside beside code in mirrored packages under `app/src/test/java`. Na
 Commits in history are short and topic-focused; keep messages imperative and under 60 characters (`Fix DNS routing fallback`). Group related changes per commit to ease bisects. For pull requests, supply a concise summary, testing notes (`gradlew testDebugUnitTest`), and screenshots for UI changes. Link tracking tickets with `Fixes #123` when applicable and request at least one reviewer familiar with the affected area.
 
 ## Tools & External Assets
-Run `tools/fetch-xray.ps1` or `tools/fetch-tun2socks.ps1` to refresh bundled binaries; commit the resulting files only after verifying licensing. Never expose production secrets—replace provisional tokens in `app/build.gradle` with environment-specific values before release tagging.
+Run `tools/fetch-tun2socks.ps1` to refresh the bundled tun2socks binary and manually update sing-box assets as needed; commit the resulting files only after verifying licensing. Never expose production secrets—replace provisional tokens in `app/build.gradle` with environment-specific values before release tagging.

