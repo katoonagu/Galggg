@@ -50,14 +50,15 @@ public final class SingBoxRunner {
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", sbCmd));
 
         android.util.Log.d("SingBoxRunner", "device arg -> " + tunFdUri);
-        java.util.List<String> t2sCmd = java.util.Arrays.asList(
+        java.util.List<String> t2sCmd = new java.util.ArrayList<>(java.util.Arrays.asList(
                 t2s.getAbsolutePath(),
                 "-device", tunFdUri,
                 "-mtu", "1500",
+                "-udp",
                 "-proxy", "socks5://127.0.0.1:" + socksPort,
                 "-tcp-auto-tuning",
                 "-loglevel", "info"
-        );
+        ));
         P_T2S = new ProcessBuilder(t2sCmd).redirectErrorStream(true).start();
         pump(P_T2S, "tun2socks");
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", t2sCmd));

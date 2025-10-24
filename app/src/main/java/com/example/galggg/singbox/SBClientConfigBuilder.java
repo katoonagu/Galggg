@@ -22,6 +22,7 @@ public final class SBClientConfigBuilder {
         socks.put("tag",  "socks-in");
         socks.put("listen", "127.0.0.1");
         socks.put("listen_port", socksPort);
+        socks.put("udp", true);
         root.put("inbounds", new JSONArray().put(socks));
 
         JSONObject ss = new JSONObject();
