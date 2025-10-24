@@ -11,8 +11,9 @@ public final class SBClientConfigBuilder {
         root.put("log", new JSONObject().put("level", (com.example.galggg.BuildConfig.DEBUG ? "debug" : "warn")));
 
         JSONObject dns = new JSONObject();
-        JSONArray servers = new JSONArray();
-        servers.put(new JSONObject().put("address", "1.1.1.1").put("detour", "direct"));
+        JSONArray servers = new JSONArray()
+                .put(new JSONObject().put("address", "1.1.1.1").put("detour", "direct"))
+                .put(new JSONObject().put("address", "9.9.9.9").put("detour", "direct"));
         dns.put("servers", servers);
         root.put("dns", dns);
 

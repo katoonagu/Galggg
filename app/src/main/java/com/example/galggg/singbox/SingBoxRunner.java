@@ -54,8 +54,10 @@ public final class SingBoxRunner {
                 t2s.getAbsolutePath(),
                 "-device", tunFdUri,
                 "-mtu", "1500",
+                "-udp",
                 "-proxy", "socks5://127.0.0.1:" + socksPort,
-                "-tcp-auto-tuning", "-loglevel", "info"
+                "-tcp-auto-tuning",
+                "-loglevel", "info"
         );
         P_T2S = new ProcessBuilder(t2sCmd).redirectErrorStream(true).start();
         pump(P_T2S, "tun2socks");
@@ -67,18 +69,29 @@ public final class SingBoxRunner {
                 okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
                         .proxy(new java.net.Proxy(java.net.Proxy.Type.SOCKS,
                                 new java.net.InetSocketAddress("127.0.0.1", socksPort)))
-                        .build();
-                okhttp3.Response r1 = client.newCall(
-                        new okhttp3.Request.Builder().url("https://api.ipify.org").build()
-                ).execute();
-                android.util.Log.d("SingBoxRunner", "selftest https ipify: " + (r1.body() != null ? r1.body().string() : "<null>"));
-
-                okhttp3.Request httpReq = new okhttp3.Request.Builder()
-                        .url("http://httpbin.org/ip")
-                        .header("Connection", "close")
+                        .connectTimeout(java.time.Duration.ofSeconds(7))
+                        .readTimeout(java.time.Duration.ofSeconds(7))
+                        .writeTimeout(java.time.Duration.ofSeconds(7))
                         .build();
                 try {
-                    okhttp3.Response r2 = client.newCall(httpReq).execute();
+                    okhttp3.Response r1 = client.newCall(
+                            new okhttp3.Request.Builder()
+                                    .url("https://api.ipify.org")
+                                    .header("Connection", "close")
+                                    .build()
+                    ).execute();
+                    android.util.Log.d("SingBoxRunner", "selftest https ipify: " + (r1.body() != null ? r1.body().string() : "<null>"));
+                } catch (Throwable t) {
+                    android.util.Log.e("SingBoxRunner", "selftest https failed", t);
+                }
+                try {
+                    okhttp3.Response r2 = client.newCall(
+                            new okhttp3.Request.Builder()
+                                    .url("http://httpbin.org/ip")
+                                    .header("Connection", "close")
+                                    .header("User-Agent", "Galggg/1.0")
+                                    .build()
+                    ).execute();
                     android.util.Log.d("SingBoxRunner", "selftest http httpbin: " + r2.code());
                 } catch (Throwable t) {
                     android.util.Log.e("SingBoxRunner", "selftest http failed", t);
