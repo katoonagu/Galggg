@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.system.Os;
+import android.system.OsConstants;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -14,6 +16,7 @@ import androidx.core.app.NotificationCompat;
 import com.example.galggg.R;
 import com.example.galggg.singbox.SingBoxRunner;
 
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class GalgggVpnService extends VpnService {
@@ -24,8 +27,8 @@ public class GalgggVpnService extends VpnService {
     private static final int NOTIF_ID = 101;
     private static final AtomicBoolean ACTIVE = new AtomicBoolean(false);
 
-    private ParcelFileDescriptor tunFd;
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private ParcelFileDescriptor tunPfd;
+    private int tunFdInt = -1;
 
     public static boolean isActive() {
         return ACTIVE.get();
@@ -34,31 +37,53 @@ public class GalgggVpnService extends VpnService {
     @Override
     public void onCreate() {
         super.onCreate();
-        startForeground(NOTIF_ID, buildNotification());
+        // Foreground started on demand from onStartCommand.
     }
 
-    private void prepareTunOrThrow() {
-        if (tunFd != null) {
+    private void prepareTunOrThrow() throws Exception {
+        if (tunPfd != null) {
             try {
-                tunFd.close();
+                tunPfd.close();
             } catch (Exception ignore) {
             }
-            tunFd = null;
+            tunPfd = null;
         }
-        android.net.VpnService.Builder b = new android.net.VpnService.Builder();
+        if (tunFdInt >= 0) {
+            int currentFd = tunFdInt;
+            tunFdInt = -1;
+            try {
+                ParcelFileDescriptor.adoptFd(currentFd).close();
+            } catch (IOException ignore) {
+            }
+        }
+        VpnService.Builder b = new VpnService.Builder();
         b.setSession("Galggg");
-        b.setMtu(1500);
         b.addAddress("10.0.0.2", 32);
         b.addDnsServer("1.1.1.1");
-        b.addDnsServer("8.8.8.8");
         b.addRoute("0.0.0.0", 0);
         try {
             b.addDisallowedApplication(getPackageName());
         } catch (Exception ignore) {
         }
-        this.tunFd = b.establish();
-        if (this.tunFd == null) {
+
+        tunPfd = b.establish();
+        if (tunPfd == null) {
             throw new IllegalStateException("establish() returned null");
+        }
+
+        ParcelFileDescriptor dupPfd = null;
+        try {
+            dupPfd = ParcelFileDescriptor.dup(tunPfd.getFileDescriptor());
+            Os.fcntlInt(dupPfd.getFileDescriptor(), OsConstants.F_SETFD, 0);
+            tunFdInt = dupPfd.detachFd();
+            dupPfd = null;
+        } finally {
+            if (dupPfd != null) {
+                try {
+                    dupPfd.close();
+                } catch (IOException ignore) {
+                }
+            }
         }
     }
 
@@ -66,26 +91,21 @@ public class GalgggVpnService extends VpnService {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent != null ? intent.getAction() : null;
         if (ACTION_STOP.equals(action)) {
-            stopEngines();
+            stopTunAndRunner();
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (running.get()) {
-            Log.d("GalgggVpnService", "Start requested but already running");
-            return START_STICKY;
-        }
+
+        startForeground(NOTIF_ID, buildNotification());
         try {
             prepareTunOrThrow();
             String tunUri = getTunFdUri();
             String t2s = getTun2SocksPath();
             SingBoxRunner.startAll(getApplicationContext(), tunUri, t2s);
-            running.set(true);
             ACTIVE.set(true);
             Log.d("GalgggVpnService", "VPN engines started");
         } catch (Throwable t) {
             Log.e("GalgggVpnService", "start failed", t);
-            stopEngines();
-            stopSelf();
         }
         return START_STICKY;
     }
@@ -109,11 +129,10 @@ public class GalgggVpnService extends VpnService {
     }
 
     private String getTunFdUri() {
-        ParcelFileDescriptor currentTun = tunFd;
-        if (currentTun == null) {
-            throw new IllegalStateException("TUN descriptor is not available");
+        if (tunFdInt < 0) {
+            throw new IllegalStateException("tun fd is not ready");
         }
-        return "fd://" + currentTun.getFd();
+        return "fd://" + tunFdInt;
     }
 
     private String getTun2SocksPath() {
@@ -122,34 +141,44 @@ public class GalgggVpnService extends VpnService {
 
     @Override
     public void onDestroy() {
-        stopEngines();
+        stopTunAndRunner();
         stopForeground(true);
         super.onDestroy();
     }
 
-    private void stopEngines() {
-        SingBoxRunner.stopAll();
-        running.set(false);
-        ACTIVE.set(false);
-        if (tunFd != null) {
-            try {
-                tunFd.close();
-            } catch (Exception ignore) {
-            }
-            tunFd = null;
+    private void stopTunAndRunner() {
+        try {
+            SingBoxRunner.stopAll();
+        } catch (Throwable ignore) {
         }
+        ACTIVE.set(false);
+        try {
+            if (tunPfd != null) {
+                tunPfd.close();
+            }
+        } catch (Throwable ignore) {
+        } finally {
+            tunPfd = null;
+        }
+        try {
+            if (tunFdInt >= 0) {
+                ParcelFileDescriptor.adoptFd(tunFdInt).close();
+            }
+        } catch (IOException ignore) {
+        }
+        tunFdInt = -1;
     }
 
     @Override
     public void onRevoke() {
-        stopEngines();
+        stopTunAndRunner();
         stopForeground(true);
         super.onRevoke();
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        stopEngines();
+        stopTunAndRunner();
         stopForeground(true);
         super.onTaskRemoved(rootIntent);
     }
