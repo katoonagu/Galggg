@@ -2,7 +2,15 @@ package com.example.galggg.singbox;
 
 import android.content.Context;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 public final class SingBoxRunner {
+    private static final Pattern SOCKS_STARTED =
+            Pattern.compile("inbound/socks\\[socks-in\\]: tcp server started at .*:(\\d+)");
+
     private static volatile Process P_SB;
     private static volatile Process P_T2S;
 
@@ -45,16 +53,22 @@ public final class SingBoxRunner {
         }
 
         java.util.List<String> sbCmd = java.util.Arrays.asList(sb.getAbsolutePath(), "run", "-c", cfgFile.getAbsolutePath());
-        Process sbProc = new ProcessBuilder(sbCmd).start();
+        Process sbProc = new ProcessBuilder(sbCmd)
+                .directory(ctx.getFilesDir())
+                .start();
         P_SB = sbProc;
         pump(P_SB, "SingBox");
-        drainProcess("sing-box", P_SB);
+        CountDownLatch socksReadyLatch = new CountDownLatch(1);
+        drainProcess("sing-box", P_SB, socksReadyLatch, socksPort);
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", sbCmd));
 
-        boolean listening = waitPort("127.0.0.1", socksPort, 3000);
-        android.util.Log.d("SingBoxRunner", "socks listening=" + listening + " on " + socksPort);
-        if (!listening) {
-            throw new IllegalStateException("sing-box did not start listening on " + socksPort);
+        boolean ready = socksReadyLatch.await(3, TimeUnit.SECONDS);
+        if (!ready) {
+            ready = probeSocks("127.0.0.1", socksPort, 2000);
+        }
+        android.util.Log.d("SingBoxRunner", "socks listening=" + ready + " on " + socksPort);
+        if (!ready) {
+            android.util.Log.w("SingBoxRunner", "sing-box SOCKS port " + socksPort + " not confirmed; continuing with tun2socks");
         }
 
         android.util.Log.d("SingBoxRunner", "device arg -> " + tunFdUri);
@@ -66,7 +80,10 @@ public final class SingBoxRunner {
                 "-tcp-auto-tuning",
                 "-loglevel", "info"
         );
-        Process t2sProc = new ProcessBuilder(t2sCmd).start();
+        Process t2sProc = new ProcessBuilder(t2sCmd)
+                .directory(ctx.getFilesDir())
+                .redirectInput(ProcessBuilder.Redirect.INHERIT)
+                .start();
         P_T2S = t2sProc;
         pump(P_T2S, "tun2socks");
         drainProcess("tun2socks", P_T2S);
@@ -129,31 +146,43 @@ public final class SingBoxRunner {
         }
     }
 
-    private static boolean waitPort(String host, int port, int timeoutMs) {
-        long end = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < end) {
-            try (java.net.Socket socket = new java.net.Socket()) {
-                socket.connect(new java.net.InetSocketAddress(host, port), 300);
-                return true;
-            } catch (Exception ignore) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
+    private static boolean probeSocks(String host, int port, int timeoutMs) {
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress(host, port), timeoutMs);
+            socket.setSoTimeout(timeoutMs);
+            socket.getOutputStream().write(new byte[]{0x05, 0x01, 0x00});
+            int ver = socket.getInputStream().read();
+            int method = socket.getInputStream().read();
+            return ver == 0x05;
+        } catch (Exception e) {
+            return false;
         }
-        return false;
     }
 
     private static void drainProcess(String tag, Process process) {
+        drainProcess(tag, process, null, -1);
+    }
+
+    private static void drainProcess(String tag, Process process,
+                                     CountDownLatch socksUp, int socksPort) {
         new Thread(() -> {
             try (java.io.BufferedReader reader =
                          new java.io.BufferedReader(new java.io.InputStreamReader(process.getErrorStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     android.util.Log.e("SingBoxRunner", tag + " STDERR: " + line);
+                    if ("sing-box".equals(tag) && socksUp != null) {
+                        Matcher matcher = SOCKS_STARTED.matcher(line);
+                        if (matcher.find()) {
+                            try {
+                                int port = Integer.parseInt(matcher.group(1));
+                                if (port == socksPort) {
+                                    socksUp.countDown();
+                                }
+                            } catch (NumberFormatException ignore) {
+                            }
+                        }
+                    }
                 }
             } catch (Exception ignored) {
             }

@@ -13,7 +13,9 @@ public final class SBClientConfigBuilder {
         JSONArray dnsServers = new JSONArray()
                 .put(new JSONObject().put("tag", "dns1").put("address", "udp://1.1.1.1"))
                 .put(new JSONObject().put("tag", "dns2").put("address", "udp://9.9.9.9"));
-        JSONObject dns = new JSONObject().put("servers", dnsServers);
+        JSONObject dns = new JSONObject()
+                .put("servers", dnsServers)
+                .put("strategy", "prefer_ipv4");
 
         JSONObject socks = new JSONObject()
                 .put("type", "socks")
@@ -36,9 +38,13 @@ public final class SBClientConfigBuilder {
                 .put(new JSONObject().put("type", "direct").put("tag", "direct"))
                 .put(new JSONObject().put("type", "block").put("tag", "block"));
 
+        JSONObject route = new JSONObject()
+                .put("default_domain_resolver", "dns1");
+
         JSONObject root = new JSONObject()
                 .put("log", log)
                 .put("dns", dns)
+                .put("route", route)
                 .put("inbounds", inbounds)
                 .put("outbounds", outbounds);
 
