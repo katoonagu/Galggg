@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
@@ -29,6 +30,7 @@ public class GalgggVpnService extends VpnService {
 
     private ParcelFileDescriptor tunPfd;
     private int tunFdInt = -1;
+    private int savedStdin = -1;
 
     public static boolean isActive() {
         return ACTIVE.get();
@@ -73,29 +75,32 @@ public class GalgggVpnService extends VpnService {
         }
 
         final int raw = tunPfd.getFd();
-        int flagsBefore = Os.fcntlInt(tunPfd.getFileDescriptor(), OsConstants.F_GETFD, 0);
-        java.io.FileDescriptor dupFd = Os.dup(tunPfd.getFileDescriptor());
-        Os.fcntlInt(dupFd, OsConstants.F_SETFD, 0);
-        int flagsAfter = Os.fcntlInt(dupFd, OsConstants.F_GETFD, 0);
-        ParcelFileDescriptor dupPfd = null;
-        try {
-            dupPfd = ParcelFileDescriptor.dup(dupFd);
-            tunFdInt = dupPfd.detachFd();
-        } finally {
-            if (dupPfd != null) {
-                try {
-                    dupPfd.close();
-                } catch (IOException ignore) {
-                }
-            }
-            try {
-                Os.close(dupFd);
-            } catch (Exception ignore) {
-            }
-        }
+        int flagsBefore = Os.fcntlInt(raw, OsConstants.F_GETFD, 0);
+        int dup = Os.dup(raw);
+        Os.fcntlInt(dup, OsConstants.F_SETFD, 0);
+        int flagsAfter = Os.fcntlInt(dup, OsConstants.F_GETFD, 0);
+        tunFdInt = dup;
 
         Log.d("GalgggVpnService", "TUN fd raw=" + raw + " dup=" + tunFdInt
                 + " flagsBefore=" + flagsBefore + " flagsAfter=" + flagsAfter);
+    }
+
+    private void remapTunToStdin() throws Exception {
+        if (tunFdInt < 0) {
+            throw new IllegalStateException("tun fd is not ready for remap");
+        }
+
+        if (savedStdin < 0) {
+            savedStdin = Os.dup(OsConstants.STDIN_FILENO);
+        }
+
+        int dup = Os.dup(tunFdInt);
+        try {
+            Os.fcntlInt(dup, OsConstants.F_SETFD, 0);
+            Os.dup2(dup, OsConstants.STDIN_FILENO);
+        } finally {
+            Os.close(dup);
+        }
     }
 
     @Override
@@ -110,13 +115,15 @@ public class GalgggVpnService extends VpnService {
         startForeground(NOTIF_ID, buildNotification());
         try {
             prepareTunOrThrow();
-            String tunUri = getTunFdUri();
+            remapTunToStdin();
+            String tunUri = getTunFdUriForTun2Socks();
             String t2s = getTun2SocksPath();
             SingBoxRunner.startAll(getApplicationContext(), tunUri, t2s);
             ACTIVE.set(true);
             Log.d("GalgggVpnService", "VPN engines started");
         } catch (Throwable t) {
             Log.e("GalgggVpnService", "start failed", t);
+            cleanupTunResources();
         }
         return START_STICKY;
     }
@@ -139,11 +146,11 @@ public class GalgggVpnService extends VpnService {
                 .build();
     }
 
-    private String getTunFdUri() {
+    private String getTunFdUriForTun2Socks() {
         if (tunFdInt < 0) {
             throw new IllegalStateException("tun fd is not ready");
         }
-        return "fd://" + tunFdInt;
+        return "fd://0";
     }
 
     private String getTun2SocksPath() {
@@ -163,22 +170,7 @@ public class GalgggVpnService extends VpnService {
         } catch (Throwable ignore) {
         }
         ACTIVE.set(false);
-        try {
-            if (tunPfd != null) {
-                tunPfd.close();
-            }
-        } catch (Throwable ignore) {
-        } finally {
-            tunPfd = null;
-        }
-        try {
-            if (tunFdInt >= 0) {
-                ParcelFileDescriptor.adoptFd(tunFdInt).close();
-            }
-        } catch (IOException ignore) {
-        } finally {
-            tunFdInt = -1;
-        }
+        cleanupTunResources();
     }
 
     @Override
@@ -193,5 +185,37 @@ public class GalgggVpnService extends VpnService {
         stopTunAndRunner();
         stopForeground(true);
         super.onTaskRemoved(rootIntent);
+    }
+
+    private void cleanupTunResources() {
+        if (savedStdin >= 0) {
+            try {
+                Os.dup2(savedStdin, OsConstants.STDIN_FILENO);
+            } catch (ErrnoException e) {
+                Log.w("GalgggVpnService", "Failed to restore stdin", e);
+            } finally {
+                try {
+                    Os.close(savedStdin);
+                } catch (ErrnoException ignore) {
+                }
+                savedStdin = -1;
+            }
+        }
+        if (tunFdInt >= 0) {
+            try {
+                Os.close(tunFdInt);
+            } catch (ErrnoException ignore) {
+            } finally {
+                tunFdInt = -1;
+            }
+        }
+        if (tunPfd != null) {
+            try {
+                tunPfd.close();
+            } catch (Exception ignore) {
+            } finally {
+                tunPfd = null;
+            }
+        }
     }
 }
