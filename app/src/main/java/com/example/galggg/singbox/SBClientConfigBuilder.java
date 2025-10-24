@@ -7,37 +7,40 @@ public final class SBClientConfigBuilder {
     private SBClientConfigBuilder(){}
 
     public static String build(int socksPort) throws Exception {
-        JSONObject root = new JSONObject();
-        root.put("log", new JSONObject().put("level", (com.example.galggg.BuildConfig.DEBUG ? "debug" : "warn")));
+        JSONObject log = new JSONObject()
+                .put("level", (com.example.galggg.BuildConfig.DEBUG ? "debug" : "warn"));
 
-        JSONObject dns = new JSONObject();
-        JSONArray servers = new JSONArray()
-                .put(new JSONObject().put("address", "1.1.1.1").put("detour", "direct"))
-                .put(new JSONObject().put("address", "9.9.9.9").put("detour", "direct"));
-        dns.put("servers", servers);
-        root.put("dns", dns);
+        JSONArray dnsServers = new JSONArray()
+                .put(new JSONObject().put("tag", "dns1").put("address", "udp://1.1.1.1"))
+                .put(new JSONObject().put("tag", "dns2").put("address", "udp://9.9.9.9"));
+        JSONObject dns = new JSONObject().put("servers", dnsServers);
 
-        JSONObject socks = new JSONObject();
-        socks.put("type", "socks");
-        socks.put("tag",  "socks-in");
-        socks.put("listen", "127.0.0.1");
-        socks.put("listen_port", socksPort);
-        socks.put("udp", true);
-        root.put("inbounds", new JSONArray().put(socks));
+        JSONObject socks = new JSONObject()
+                .put("type", "socks")
+                .put("tag", "socks-in")
+                .put("listen", "127.0.0.1")
+                .put("listen_port", socksPort)
+                .put("udp_timeout", "5m");
+        JSONArray inbounds = new JSONArray().put(socks);
 
-        JSONObject ss = new JSONObject();
-        ss.put("type", "shadowsocks");
-        ss.put("tag",  "to-ss");
-        ss.put("server", SBConstants.SERVER_HOST);
-        ss.put("server_port", SBConstants.SERVER_PORT);
-        ss.put("method", SBConstants.METHOD);
-        ss.put("password", SBConstants.PASSWORD_B64);
+        JSONObject ss = new JSONObject()
+                .put("type", "shadowsocks")
+                .put("tag", "to-ss")
+                .put("server", SBConstants.SERVER_HOST)
+                .put("server_port", SBConstants.SERVER_PORT)
+                .put("method", SBConstants.METHOD)
+                .put("password", SBConstants.PASSWORD_B64);
 
-        JSONArray outs = new JSONArray();
-        outs.put(ss);
-        outs.put(new JSONObject().put("type","direct").put("tag","direct"));
-        outs.put(new JSONObject().put("type","block").put("tag","block"));
-        root.put("outbounds", outs);
+        JSONArray outbounds = new JSONArray()
+                .put(ss)
+                .put(new JSONObject().put("type", "direct").put("tag", "direct"))
+                .put(new JSONObject().put("type", "block").put("tag", "block"));
+
+        JSONObject root = new JSONObject()
+                .put("log", log)
+                .put("dns", dns)
+                .put("inbounds", inbounds)
+                .put("outbounds", outbounds);
 
         return root.toString();
     }
