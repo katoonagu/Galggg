@@ -21,35 +21,19 @@ public final class SingBoxRunner {
         }, tag + "-pump").start();
     }
 
-    private static Process startWithChmodRetry(java.util.List<String> cmd, String tag, java.io.File bin) throws Exception {
-        try {
-            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            pump(p, tag);
-            return p;
-        } catch (java.io.IOException e) {
-            if (e.getMessage() != null && e.getMessage().contains("Permission denied")) {
-                try {
-                    Runtime.getRuntime().exec(new String[]{"chmod", "0755", bin.getAbsolutePath()}).waitFor();
-                } catch (Throwable ignored) {
-                }
-                Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-                pump(p, tag);
-                return p;
-            }
-            throw e;
-        }
-    }
-
     public static int startAll(Context ctx, String tunFdUri, String tun2socksPath) throws Exception {
         stopAll();
 
         int socksPort = com.example.galggg.net.PortAllocator.chooseLoopbackPort(
                 com.example.galggg.singbox.SBConstants.SOCKS_PORT);
 
-        java.io.File sb = com.example.galggg.singbox.SBBinary.ensure(ctx);
+        java.io.File sb = com.example.galggg.singbox.SBBinaryPaths.singbox(ctx);
         java.io.File t2s = (tun2socksPath != null && !tun2socksPath.isEmpty())
                 ? new java.io.File(tun2socksPath)
-                : com.example.galggg.singbox.SBBinary.ensureTun2Socks(ctx);
+                : com.example.galggg.singbox.SBBinaryPaths.tun2socks(ctx);
+
+        android.util.Log.d("SingBoxRunner", "using sing-box: " + sb.getAbsolutePath());
+        android.util.Log.d("SingBoxRunner", "using tun2socks: " + t2s.getAbsolutePath());
 
         String cfg = com.example.galggg.singbox.SBClientConfigBuilder.build(socksPort);
         android.util.Log.d("SingBoxRunner", "sing-box config preview: " + cfg.substring(0, Math.min(300, cfg.length())));
@@ -61,7 +45,8 @@ public final class SingBoxRunner {
         }
 
         java.util.List<String> sbCmd = java.util.Arrays.asList(sb.getAbsolutePath(), "run", "-c", cfgFile.getAbsolutePath());
-        P_SB = startWithChmodRetry(sbCmd, "SingBox", sb);
+        P_SB = new ProcessBuilder(sbCmd).redirectErrorStream(true).start();
+        pump(P_SB, "SingBox");
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", sbCmd));
 
         java.util.List<String> t2sCmd = java.util.Arrays.asList(
@@ -70,7 +55,8 @@ public final class SingBoxRunner {
                 "-proxy", "socks5://127.0.0.1:" + socksPort,
                 "-tcp-auto-tuning", "-loglevel", "info"
         );
-        P_T2S = startWithChmodRetry(t2sCmd, "tun2socks", t2s);
+        P_T2S = new ProcessBuilder(t2sCmd).redirectErrorStream(true).start();
+        pump(P_T2S, "tun2socks");
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", t2sCmd));
 
         new Thread(() -> {
