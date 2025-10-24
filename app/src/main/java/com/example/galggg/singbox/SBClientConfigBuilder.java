@@ -8,7 +8,7 @@ public final class SBClientConfigBuilder {
 
     public static String build(int socksPort) throws Exception {
         JSONObject root = new JSONObject();
-        root.put("log", new JSONObject().put("level", "debug"));
+        root.put("log", new JSONObject().put("level", (com.example.galggg.BuildConfig.DEBUG ? "debug" : "warn")));
 
         JSONObject dns = new JSONObject();
         JSONArray servers = new JSONArray();

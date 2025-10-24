@@ -68,19 +68,18 @@ public final class SingBoxRunner {
                         .proxy(new java.net.Proxy(java.net.Proxy.Type.SOCKS,
                                 new java.net.InetSocketAddress("127.0.0.1", socksPort)))
                         .build();
+                okhttp3.Response r1 = client.newCall(
+                        new okhttp3.Request.Builder().url("https://api.ipify.org").build()
+                ).execute();
+                android.util.Log.d("SingBoxRunner", "selftest https ipify: " + (r1.body() != null ? r1.body().string() : "<null>"));
+
+                okhttp3.Request httpReq = new okhttp3.Request.Builder()
+                        .url("http://httpbin.org/ip")
+                        .header("Connection", "close")
+                        .build();
                 try {
-                    okhttp3.Response r1 = client.newCall(
-                            new okhttp3.Request.Builder().url("https://api.ipify.org").build()
-                    ).execute();
-                    android.util.Log.d("SingBoxRunner", "selftest https ipify: " + (r1.body() != null ? r1.body().string() : "<null>"));
-                } catch (Throwable t) {
-                    android.util.Log.e("SingBoxRunner", "selftest https failed", t);
-                }
-                try {
-                    okhttp3.Response r2 = client.newCall(
-                            new okhttp3.Request.Builder().url("http://neverssl.com/").build()
-                    ).execute();
-                    android.util.Log.d("SingBoxRunner", "selftest http neverssl: " + r2.code());
+                    okhttp3.Response r2 = client.newCall(httpReq).execute();
+                    android.util.Log.d("SingBoxRunner", "selftest http httpbin: " + r2.code());
                 } catch (Throwable t) {
                     android.util.Log.e("SingBoxRunner", "selftest http failed", t);
                 }
