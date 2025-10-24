@@ -11,9 +11,6 @@ public final class SBConstants {
     public static final String METHOD      = "2022-blake3-aes-256-gcm";
     public static final String PASSWORD_B64= "I0xjJiREXTrYlFRrK7e0rFNq1o9SvlTGVuhi1KhVKrA=";
 
-    // Local SOCKS port receiving traffic from tun2socks
-    public static final int    SOCKS_PORT  = 10808;
-
     // Client configuration storage paths
     public static final String SB_DIR      = "singbox";
     public static final String SB_CFG      = "config.json";

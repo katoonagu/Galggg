@@ -24,8 +24,8 @@ public final class SingBoxRunner {
     public static int startAll(Context ctx, String tunFdUri, String tun2socksPath) throws Exception {
         stopAll();
 
-        int socksPort = com.example.galggg.net.PortAllocator.chooseLoopbackPort(
-                com.example.galggg.singbox.SBConstants.SOCKS_PORT);
+        int socksPort = com.example.galggg.singbox.SocksPortAllocator.pick();
+        android.util.Log.d("SingBoxRunner", "picked socks port: " + socksPort);
 
         java.io.File sb = com.example.galggg.singbox.SBBinaryPaths.singbox(ctx);
         java.io.File t2s = (tun2socksPath != null && !tun2socksPath.isEmpty())
@@ -45,22 +45,31 @@ public final class SingBoxRunner {
         }
 
         java.util.List<String> sbCmd = java.util.Arrays.asList(sb.getAbsolutePath(), "run", "-c", cfgFile.getAbsolutePath());
-        P_SB = new ProcessBuilder(sbCmd).redirectErrorStream(true).start();
+        Process sbProc = new ProcessBuilder(sbCmd).start();
+        P_SB = sbProc;
         pump(P_SB, "SingBox");
+        drainProcess("sing-box", P_SB);
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", sbCmd));
 
+        boolean listening = waitPort("127.0.0.1", socksPort, 3000);
+        android.util.Log.d("SingBoxRunner", "socks listening=" + listening + " on " + socksPort);
+        if (!listening) {
+            throw new IllegalStateException("sing-box did not start listening on " + socksPort);
+        }
+
         android.util.Log.d("SingBoxRunner", "device arg -> " + tunFdUri);
-        java.util.List<String> t2sCmd = new java.util.ArrayList<>(java.util.Arrays.asList(
+        java.util.List<String> t2sCmd = java.util.Arrays.asList(
                 t2s.getAbsolutePath(),
                 "-device", tunFdUri,
                 "-mtu", "1500",
-                "-udp",
                 "-proxy", "socks5://127.0.0.1:" + socksPort,
                 "-tcp-auto-tuning",
                 "-loglevel", "info"
-        ));
-        P_T2S = new ProcessBuilder(t2sCmd).redirectErrorStream(true).start();
+        );
+        Process t2sProc = new ProcessBuilder(t2sCmd).start();
+        P_T2S = t2sProc;
         pump(P_T2S, "tun2socks");
+        drainProcess("tun2socks", P_T2S);
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", t2sCmd));
 
         new Thread(() -> {
@@ -118,5 +127,36 @@ public final class SingBoxRunner {
             }
         } catch (Throwable ignore) {
         }
+    }
+
+    private static boolean waitPort(String host, int port, int timeoutMs) {
+        long end = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < end) {
+            try (java.net.Socket socket = new java.net.Socket()) {
+                socket.connect(new java.net.InetSocketAddress(host, port), 300);
+                return true;
+            } catch (Exception ignore) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void drainProcess(String tag, Process process) {
+        new Thread(() -> {
+            try (java.io.BufferedReader reader =
+                         new java.io.BufferedReader(new java.io.InputStreamReader(process.getErrorStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    android.util.Log.e("SingBoxRunner", tag + " STDERR: " + line);
+                }
+            } catch (Exception ignored) {
+            }
+        }, "drain-" + tag).start();
     }
 }
