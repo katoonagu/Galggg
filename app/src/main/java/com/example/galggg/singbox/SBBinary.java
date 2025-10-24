@@ -2,7 +2,6 @@ package com.example.galggg.singbox;
 
 import android.content.Context;
 import android.os.Build;
-import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -12,6 +11,18 @@ import java.io.OutputStream;
 
 public final class SBBinary {
     private SBBinary(){}
+
+    private static void ensureMode0755(File f) {
+        try {
+            f.setReadable(true, false);
+            f.setReadable(true, true);
+            f.setExecutable(true, false);
+            f.setExecutable(true, true);
+            f.setWritable(true, false);
+            Runtime.getRuntime().exec(new String[]{"chmod", "0755", f.getAbsolutePath()}).waitFor();
+        } catch (Throwable ignored) {
+        }
+    }
 
     public static File ensure(Context ctx) throws IOException {
         String abi = pickAbi();
@@ -32,11 +43,7 @@ public final class SBBinary {
                 }
             }
         }
-        // Ensure the binary is executable
-        boolean ok = out.setExecutable(true, false);
-        if (!ok) {
-            Log.w("SBBinary", "setExecutable(false) returned false");
-        }
+        ensureMode0755(out);
         return out;
     }
 
@@ -59,7 +66,7 @@ public final class SBBinary {
                 }
             }
         }
-        out.setExecutable(true, false);
+        ensureMode0755(out);
         return out;
     }
 

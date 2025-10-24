@@ -21,6 +21,25 @@ public final class SingBoxRunner {
         }, tag + "-pump").start();
     }
 
+    private static Process startWithChmodRetry(java.util.List<String> cmd, String tag, java.io.File bin) throws Exception {
+        try {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            pump(p, tag);
+            return p;
+        } catch (java.io.IOException e) {
+            if (e.getMessage() != null && e.getMessage().contains("Permission denied")) {
+                try {
+                    Runtime.getRuntime().exec(new String[]{"chmod", "0755", bin.getAbsolutePath()}).waitFor();
+                } catch (Throwable ignored) {
+                }
+                Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+                pump(p, tag);
+                return p;
+            }
+            throw e;
+        }
+    }
+
     public static int startAll(Context ctx, String tunFdUri, String tun2socksPath) throws Exception {
         stopAll();
 
@@ -42,8 +61,7 @@ public final class SingBoxRunner {
         }
 
         java.util.List<String> sbCmd = java.util.Arrays.asList(sb.getAbsolutePath(), "run", "-c", cfgFile.getAbsolutePath());
-        P_SB = new ProcessBuilder(sbCmd).redirectErrorStream(true).start();
-        pump(P_SB, "SingBox");
+        P_SB = startWithChmodRetry(sbCmd, "SingBox", sb);
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", sbCmd));
 
         java.util.List<String> t2sCmd = java.util.Arrays.asList(
@@ -52,8 +70,7 @@ public final class SingBoxRunner {
                 "-proxy", "socks5://127.0.0.1:" + socksPort,
                 "-tcp-auto-tuning", "-loglevel", "info"
         );
-        P_T2S = new ProcessBuilder(t2sCmd).redirectErrorStream(true).start();
-        pump(P_T2S, "tun2socks");
+        P_T2S = startWithChmodRetry(t2sCmd, "tun2socks", t2s);
         android.util.Log.d("SingBoxRunner", "started: " + String.join(" ", t2sCmd));
 
         new Thread(() -> {
