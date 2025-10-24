@@ -54,7 +54,6 @@ public final class SingBoxRunner {
                 t2s.getAbsolutePath(),
                 "-device", tunFdUri,
                 "-mtu", "1500",
-                "-udp",
                 "-proxy", "socks5://127.0.0.1:" + socksPort,
                 "-tcp-auto-tuning",
                 "-loglevel", "info"
@@ -82,7 +81,7 @@ public final class SingBoxRunner {
                     ).execute();
                     android.util.Log.d("SingBoxRunner", "selftest https ipify: " + (r1.body() != null ? r1.body().string() : "<null>"));
                 } catch (Throwable t) {
-                    android.util.Log.e("SingBoxRunner", "selftest https failed", t);
+                    android.util.Log.w("SingBoxRunner", "selftest https failed: " + t.getMessage());
                 }
                 try {
                     okhttp3.Response r2 = client.newCall(
@@ -94,10 +93,10 @@ public final class SingBoxRunner {
                     ).execute();
                     android.util.Log.d("SingBoxRunner", "selftest http httpbin: " + r2.code());
                 } catch (Throwable t) {
-                    android.util.Log.e("SingBoxRunner", "selftest http failed", t);
+                    android.util.Log.w("SingBoxRunner", "selftest http failed: " + t.getMessage());
                 }
             } catch (Throwable t) {
-                android.util.Log.e("SingBoxRunner", "selftest failed", t);
+                android.util.Log.e("SingBoxRunner", "selftest thread failed", t);
             }
         }).start();
         return socksPort;

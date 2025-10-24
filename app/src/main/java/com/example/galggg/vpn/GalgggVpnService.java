@@ -64,7 +64,7 @@ public class GalgggVpnService extends VpnService {
         b.addAddress("10.0.0.2", 32);
         b.addDnsServer("1.1.1.1");
         b.addRoute("0.0.0.0", 0);
-        // b.addRoute("::", 0);
+        b.addRoute("::", 0);
         try {
             b.addDisallowedApplication(getPackageName());
         } catch (Exception ignore) {
