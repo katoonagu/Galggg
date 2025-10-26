@@ -5,3 +5,6 @@ local.properties
 *.iml
 *.log
 .DS_Store
+signing/
+*.keystore
+*.jks

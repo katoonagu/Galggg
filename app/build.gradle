@@ -10,8 +10,8 @@ android {
         applicationId "com.example.galggg"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 10012
+        versionName "1.0.12"
 
         buildConfigField "String", "PROVISION_HOST", "\"vpnonee.com\""
         buildConfigField "String", "PROVISION_URL", "\"http://vpnonee.com:8081\""
@@ -20,8 +20,24 @@ android {
         buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
         buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
 
-        ndk {
-            abiFilters "arm64-v8a", "x86_64"
+        // Оставь только нужные ABI (меньше apk). Если нужен эмулятор x86_64 — добавь его.
+        ndk { abiFilters "arm64-v8a" /*, "x86_64"*/ }
+    }
+
+    signingConfigs {
+        release {
+            // Укажи путь к keystore: ВАРИАНТ А (вне репы) или ВАРИАНТ B (в проекте)
+            // ВАРИАНТ А:
+            // storeFile file("C:/Keys/galggg/galggg-release.keystore")
+            // ВАРИАНТ B:
+            // storeFile file("../signing/galggg-release.keystore")
+
+            // Ключ лежит в проекте: <root>/signing/galggg-release.keystore
+            storeFile file("$rootDir/signing/galggg-release.keystore")
+            storePassword System.getenv("GALGGG_STOREPASS")
+            keyAlias "galggg"
+            // PKCS12: пароль ключа = паролю хранилища; делаем fallback
+            keyPassword (System.getenv("GALGGG_KEYPASS") ?: System.getenv("GALGGG_STOREPASS"))
         }
     }
 
@@ -29,10 +45,24 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            minifyEnabled true
+            shrinkResources true
+            signingConfig signingConfigs.release
+
+            // Мы запускаем native из jniLibs — это нужно оставить
+            packagingOptions {
+                jniLibs { useLegacyPackaging = true }
+            }
+
+            // (Опционально) Убрать лишний шум proguard'ом
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        debug { }
+        debug {
+            // debug пусть остаётся без подписи релизным ключом
+            packagingOptions {
+                jniLibs { useLegacyPackaging = true }
+            }
+        }
     }
 
     compileOptions {
@@ -40,11 +70,6 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    packagingOptions {
-        jniLibs {
-            useLegacyPackaging = true
-        }
-    }
 }
 
 dependencies {
