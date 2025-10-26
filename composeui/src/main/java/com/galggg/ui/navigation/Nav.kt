@@ -1,18 +1,37 @@
 package com.galggg.ui.navigation
 
-import androidx.compose.runtime.*
-import androidx.compose.material3.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.icons.Icons
-import androidx.compose.material3.icons.filled.Home
-import androidx.compose.material3.icons.filled.List
-import androidx.compose.material3.icons.filled.Settings
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.*
-import com.galggg.ui.screens.*
-import com.galggg.ui.vm.*
-import com.galggg.ui.data.*
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.galggg.ui.data.ConnectionState
+import com.galggg.ui.data.InMemoryVpnController
+import com.galggg.ui.data.VpnController
+import com.galggg.ui.screens.HomeScreen
+import com.galggg.ui.screens.LocationsScreen
+import com.galggg.ui.screens.SettingsScreen
+import com.galggg.ui.vm.HomeViewModel
+import com.galggg.ui.vm.LocationsViewModel
 
 enum class Dest(val route: String) { Home("home"), Locations("locations"), Settings("settings") }
 

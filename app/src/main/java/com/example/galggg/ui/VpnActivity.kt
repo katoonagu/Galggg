@@ -1,20 +1,20 @@
-﻿package .ui
+package com.example.galggg.ui
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.galggg.ui.bridge.VpnControllerFactory
 import com.galggg.ui.bridge.VpnControllerProvider
-import .R
+import com.example.galggg.R
 
+/**
+ * Экран-хост: подменяет контроллер на наш и показывает Compose UI.
+ */
 class VpnActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Перед показом UI подменяем контроллер на наш, работающий с бэком
         VpnControllerProvider.set(VpnControllerFactory {
-            GalgggVpnController(
-                // TODO: подай зависимости ядра сюда
-            )
+            GalgggVpnController(applicationContext)
         })
 
         setContentView(R.layout.activity_vpn)

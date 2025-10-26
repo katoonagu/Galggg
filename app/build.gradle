@@ -1,6 +1,6 @@
-plugins
-    id 'org.jetbrains.kotlin.android'
+plugins {
     id "com.android.application" version "8.6.1"
+    id "org.jetbrains.kotlin.android" version "1.9.24"
 }
 
 android {
@@ -21,23 +21,19 @@ android {
         buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
         buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
 
-        // Оставь только нужные ABI (меньше apk). Если нужен эмулятор x86_64 — добавь его.
+        // Keep only required ABIs to reduce APK size; add x86_64 if an emulator build is needed.
         ndk { abiFilters "arm64-v8a" /*, "x86_64"*/ }
     }
 
     signingConfigs {
         release {
-            // Укажи путь к keystore: ВАРИАНТ А (вне репы) или ВАРИАНТ B (в проекте)
-            // ВАРИАНТ А:
+            // Example keystore paths:
             // storeFile file("C:/Keys/galggg/galggg-release.keystore")
-            // ВАРИАНТ B:
             // storeFile file("../signing/galggg-release.keystore")
-
-            // Ключ лежит в проекте: <root>/signing/galggg-release.keystore
             storeFile file("$rootDir/signing/galggg-release.keystore")
             storePassword System.getenv("GALGGG_STOREPASS")
             keyAlias "galggg"
-            // PKCS12: пароль ключа = паролю хранилища; делаем fallback
+            // PKCS12: fallback to store password when key password is not provided.
             keyPassword (System.getenv("GALGGG_KEYPASS") ?: System.getenv("GALGGG_STOREPASS"))
         }
     }
@@ -50,16 +46,15 @@ android {
             shrinkResources true
             signingConfig signingConfigs.release
 
-            // Мы запускаем native из jniLibs — это нужно оставить
+            // Native binaries ship from jniLibs; keep legacy packaging.
             packagingOptions {
                 jniLibs { useLegacyPackaging = true }
             }
 
-            // (Опционально) Убрать лишний шум proguard'ом
+            // Optionally reduce ProGuard noise.
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            // debug пусть остаётся без подписи релизным ключом
             packagingOptions {
                 jniLibs { useLegacyPackaging = true }
             }
@@ -70,20 +65,22 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 dependencies {
+    implementation project(":composeui")
+    implementation "androidx.core:core-ktx:1.13.1"
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "com.google.android.material:material:1.12.0"
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
     implementation "com.google.code.gson:gson:2.10.1"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "androidx.test:core:1.6.1"
     testImplementation "org.robolectric:robolectric:4.11.1"
 }
-
-
-dependencies { implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1' }

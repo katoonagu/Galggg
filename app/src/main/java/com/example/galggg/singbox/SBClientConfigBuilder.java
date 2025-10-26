@@ -6,7 +6,8 @@ import org.json.JSONObject;
 public final class SBClientConfigBuilder {
     private SBClientConfigBuilder(){}
 
-    public static String build(int socksPort) throws Exception {
+    public static String build(int socksPort, SBClientOptions options) throws Exception {
+        SBClientOptions opts = options != null ? options : SBConstants.defaultOptions();
         JSONObject log = new JSONObject()
                 .put("level", (com.example.galggg.BuildConfig.DEBUG ? "debug" : "warn"));
 
@@ -28,10 +29,10 @@ public final class SBClientConfigBuilder {
         JSONObject ss = new JSONObject()
                 .put("type", "shadowsocks")
                 .put("tag", "to-ss")
-                .put("server", SBConstants.SERVER_HOST)
-                .put("server_port", SBConstants.SERVER_PORT)
-                .put("method", SBConstants.METHOD)
-                .put("password", SBConstants.PASSWORD_B64);
+                .put("server", opts.getServerHost())
+                .put("server_port", opts.getServerPort())
+                .put("method", opts.getMethod())
+                .put("password", opts.getPasswordBase64());
 
         JSONArray outbounds = new JSONArray()
                 .put(ss)

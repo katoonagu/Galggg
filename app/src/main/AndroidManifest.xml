@@ -37,6 +37,10 @@
         </service>
 
         <activity
+            android:name=".ui.VpnActivity"
+            android:exported="true" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

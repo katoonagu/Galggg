@@ -14,4 +14,8 @@ public final class SBConstants {
     // Client configuration storage paths
     public static final String SB_DIR      = "singbox";
     public static final String SB_CFG      = "config.json";
+
+    public static SBClientOptions defaultOptions() {
+        return new SBClientOptions(SERVER_HOST, SERVER_PORT, METHOD, PASSWORD_B64);
+    }
 }

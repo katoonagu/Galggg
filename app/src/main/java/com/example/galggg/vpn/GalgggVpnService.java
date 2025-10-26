@@ -10,11 +10,14 @@ import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+import android.text.TextUtils;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
 import com.example.galggg.R;
+import com.example.galggg.singbox.SBClientOptions;
+import com.example.galggg.singbox.SBConstants;
 import com.example.galggg.singbox.SingBoxRunner;
 
 import java.io.FileDescriptor;
@@ -25,6 +28,22 @@ public class GalgggVpnService extends VpnService {
 
     public static final String ACTION_START = "com.example.galggg.vpn.START";
     public static final String ACTION_STOP = "com.example.galggg.vpn.STOP";
+    public static final String ACTION_STATUS = "com.example.galggg.vpn.STATUS";
+
+    public static final String EXTRA_STATE = "com.example.galggg.vpn.EXTRA_STATE";
+    public static final String EXTRA_SERVER_ID = "com.example.galggg.vpn.EXTRA_SERVER_ID";
+    public static final String EXTRA_PROTOCOL = "com.example.galggg.vpn.EXTRA_PROTOCOL";
+    public static final String EXTRA_SERVER_HOST = "com.example.galggg.vpn.EXTRA_SERVER_HOST";
+    public static final String EXTRA_SERVER_PORT = "com.example.galggg.vpn.EXTRA_SERVER_PORT";
+    public static final String EXTRA_SERVER_METHOD = "com.example.galggg.vpn.EXTRA_SERVER_METHOD";
+    public static final String EXTRA_SERVER_PASSWORD = "com.example.galggg.vpn.EXTRA_SERVER_PASSWORD";
+    public static final String EXTRA_ERROR = "com.example.galggg.vpn.EXTRA_ERROR";
+
+    public static final String STATE_CONNECTING = "CONNECTING";
+    public static final String STATE_CONNECTED = "CONNECTED";
+    public static final String STATE_DISCONNECTED = "DISCONNECTED";
+    public static final String STATE_ERROR = "ERROR";
+
     private static final String CH_ID = "galggg_vpn";
     private static final int NOTIF_ID = 101;
     private static final AtomicBoolean ACTIVE = new AtomicBoolean(false);
@@ -32,9 +51,46 @@ public class GalgggVpnService extends VpnService {
     private ParcelFileDescriptor tunPfd;
     private FileDescriptor tunDupFd;
     private FileDescriptor savedStdinFd;
+    private String activeServerId;
+    private String activeProtocol;
+    private SBClientOptions activeOptions = SBConstants.defaultOptions();
 
     public static boolean isActive() {
         return ACTIVE.get();
+    }
+
+    private SBClientOptions resolveOptionsFromIntent(Intent intent) {
+        if (intent == null) {
+            return SBConstants.defaultOptions();
+        }
+        String host = intent.getStringExtra(EXTRA_SERVER_HOST);
+        int port = intent.getIntExtra(EXTRA_SERVER_PORT, -1);
+        String method = intent.getStringExtra(EXTRA_SERVER_METHOD);
+        String password = intent.getStringExtra(EXTRA_SERVER_PASSWORD);
+        if (TextUtils.isEmpty(host) || port <= 0 || TextUtils.isEmpty(method) || TextUtils.isEmpty(password)) {
+            return SBConstants.defaultOptions();
+        }
+        return new SBClientOptions(host, port, method, password);
+    }
+
+    private void broadcastState(String state, String error) {
+        Intent status = new Intent(ACTION_STATUS);
+        status.setPackage(getPackageName());
+        status.putExtra(EXTRA_STATE, state);
+        if (activeServerId != null) {
+            status.putExtra(EXTRA_SERVER_ID, activeServerId);
+        }
+        if (activeProtocol != null) {
+            status.putExtra(EXTRA_PROTOCOL, activeProtocol);
+        }
+        if (activeOptions != null) {
+            status.putExtra(EXTRA_SERVER_HOST, activeOptions.getServerHost());
+            status.putExtra(EXTRA_SERVER_PORT, activeOptions.getServerPort());
+        }
+        if (!TextUtils.isEmpty(error)) {
+            status.putExtra(EXTRA_ERROR, error);
+        }
+        sendBroadcast(status);
     }
 
     @Override
@@ -105,6 +161,10 @@ public class GalgggVpnService extends VpnService {
             stopSelf();
             return START_NOT_STICKY;
         }
+        activeServerId = intent != null ? intent.getStringExtra(EXTRA_SERVER_ID) : null;
+        activeProtocol = intent != null ? intent.getStringExtra(EXTRA_PROTOCOL) : null;
+        activeOptions = resolveOptionsFromIntent(intent);
+        broadcastState(STATE_CONNECTING, null);
 
         startForeground(NOTIF_ID, buildNotification());
         try {
@@ -112,12 +172,17 @@ public class GalgggVpnService extends VpnService {
             remapTunToStdin();
             String tunUri = getTunDeviceArg();
             String t2s = getTun2SocksPath();
-            SingBoxRunner.startAll(getApplicationContext(), tunUri, t2s);
+            SingBoxRunner.startAll(getApplicationContext(), tunUri, t2s, activeOptions);
             ACTIVE.set(true);
             Log.d("GalgggVpnService", "VPN engines started");
+            broadcastState(STATE_CONNECTED, null);
         } catch (Throwable t) {
             Log.e("GalgggVpnService", "start failed", t);
-            cleanupTunResources();
+            ACTIVE.set(false);
+            broadcastState(STATE_ERROR, t.getMessage());
+            stopTunAndRunner();
+            stopForeground(true);
+            stopSelf();
         }
         return START_STICKY;
     }
@@ -150,31 +215,7 @@ public class GalgggVpnService extends VpnService {
 
     @Override
     public void onDestroy() {
-        try {
-            SingBoxRunner.stopAll();
-        } catch (Throwable ignore) {
-        }
-        try {
-            if (tunPfd != null) {
-                tunPfd.close();
-            }
-        } catch (Throwable ignore) {
-        } finally {
-            tunPfd = null;
-        }
-        try {
-            if (savedStdinFd != null) {
-                Os.dup2(savedStdinFd, OsConstants.STDIN_FILENO);
-                Os.close(savedStdinFd);
-                savedStdinFd = null;
-            }
-            if (tunDupFd != null) {
-                Os.close(tunDupFd);
-                tunDupFd = null;
-            }
-        } catch (Throwable ignore) {
-        }
-        ACTIVE.set(false);
+        stopTunAndRunner();
         stopForeground(true);
         super.onDestroy();
     }
@@ -186,6 +227,10 @@ public class GalgggVpnService extends VpnService {
         }
         ACTIVE.set(false);
         cleanupTunResources();
+        broadcastState(STATE_DISCONNECTED, null);
+        activeOptions = SBConstants.defaultOptions();
+        activeServerId = null;
+        activeProtocol = null;
     }
 
     @Override

@@ -29,7 +29,7 @@ public final class SingBoxRunner {
         }, tag + "-pump").start();
     }
 
-    public static int startAll(Context ctx, String tunFdUri, String tun2socksPath) throws Exception {
+    public static int startAll(Context ctx, String tunFdUri, String tun2socksPath, SBClientOptions options) throws Exception {
         stopAll();
 
         int socksPort = com.example.galggg.singbox.SocksPortAllocator.pick();
@@ -40,10 +40,12 @@ public final class SingBoxRunner {
                 ? new java.io.File(tun2socksPath)
                 : com.example.galggg.singbox.SBBinaryPaths.tun2socks(ctx);
 
+        SBClientOptions opts = (options != null) ? options : com.example.galggg.singbox.SBConstants.defaultOptions();
         android.util.Log.d("SingBoxRunner", "using sing-box: " + sb.getAbsolutePath());
         android.util.Log.d("SingBoxRunner", "using tun2socks: " + t2s.getAbsolutePath());
+        android.util.Log.d("SingBoxRunner", "target server: " + opts.getServerHost() + ":" + opts.getServerPort());
 
-        String cfg = com.example.galggg.singbox.SBClientConfigBuilder.build(socksPort);
+        String cfg = com.example.galggg.singbox.SBClientConfigBuilder.build(socksPort, opts);
         android.util.Log.d("SingBoxRunner", "sing-box config preview: " + cfg.substring(0, Math.min(300, cfg.length())));
         java.io.File dir = new java.io.File(ctx.getFilesDir(), com.example.galggg.singbox.SBConstants.SB_DIR);
         if (!dir.exists()) dir.mkdirs();
