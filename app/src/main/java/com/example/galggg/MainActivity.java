@@ -89,6 +89,11 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
+        View btnConfigUpload = findViewById(R.id.btnConfigUpload);
+        if (btnConfigUpload != null) {
+            btnConfigUpload.setOnClickListener(v -> startPickFlow());
+        }
+
         requestNotificationPermissionIfNeeded();
     }
 
