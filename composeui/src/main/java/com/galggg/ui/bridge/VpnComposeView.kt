@@ -15,7 +15,7 @@ class VpnComposeView @JvmOverloads constructor(
     init {
         setContent {
             VpnTheme {
-                VpnApp()
+                VpnApp(controller = VpnControllerProvider.get())
             }
         }
     }

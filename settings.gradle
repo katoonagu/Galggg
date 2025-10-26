@@ -14,3 +14,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Galggg"
 include(":app")
+
+include ':composeui'
