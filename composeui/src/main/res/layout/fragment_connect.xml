@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="16dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/vpn_background">
+
+    <TextView
+        android:id="@+id/stateTitle"
+        android:text="Disconnected"
+        android:textStyle="bold"
+        android:textColor="@color/vpn_foreground"
+        android:textSize="22sp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+    <View
+        android:id="@+id/connectButton"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_marginTop="24dp"
+        android:background="@android:color/holo_blue_light" />
+
+    <Button
+        android:id="@+id/chooseLocation"
+        android:text="Choose location"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp" />
+</LinearLayout>

@@ -1,0 +1,18 @@
+<resources>
+    <!-- Derived from globals.css tokens -->
+    <color name="vpn_background">#242424</color>
+    <color name="vpn_foreground">#FCFCFC</color>
+    <color name="vpn_primary">#FCFCFC</color>
+    <color name="vpn_primary_foreground">#353535</color>
+    <color name="vpn_secondary">#444444</color>
+    <color name="vpn_secondary_foreground">#FCFCFC</color>
+    <color name="vpn_accent">#444444</color>
+    <color name="vpn_accent_foreground">#FCFCFC</color>
+    <color name="vpn_destructive">#C0443D</color>
+    <color name="vpn_border">#444444</color>
+    <color name="vpn_input_background">#F3F3F5</color>
+    <color name="vpn_switch_background">#CBCED4</color>
+    <color name="vpn_ring">#707070</color>
+    <color name="vpn_success">#2E7D32</color>
+    <color name="vpn_warning">#F9A825</color>
+</resources>
