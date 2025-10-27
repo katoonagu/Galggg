@@ -31,6 +31,10 @@ Run `tools/fetch-tun2socks.ps1` to refresh the bundled tun2socks binary and manu
 - Compose‑модуль: `./gradlew :composeui:assemble`
 - Минимум: Android Gradle Plugin/Compose версии — см. `build.gradle`, использовать BOM.
 
+## Build Requirements
+- Compose Animation artifact (`androidx.compose.animation:animation`) required for state animations
+- HomeScreen uses separate `connectionState`/`configState` parameters (not single `state`)
+
 ## Структура
 - `composeui/src/main/kotlin/.../ui/screens` — экраны
 - `composeui/.../ui/components` — атомарные/композитные компоненты

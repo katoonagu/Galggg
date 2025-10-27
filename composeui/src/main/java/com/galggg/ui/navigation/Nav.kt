@@ -46,13 +46,13 @@ fun VpnApp(controller: VpnController = InMemoryVpnController()) {
                 composable(Dest.Home.route) {
                     val ui by homeVm.ui.collectAsState()
                     HomeScreen(
-                        state = ui.connectionState,
+                        connectionState = ui.connectionState,
+                        configState = ui.configState,
                         currentServer = ui.currentServer,
-                        onConnectToggle = {
-                            if (ui.connectionState == ConnectionState.CONNECTED) homeVm.disconnect()
-                            else homeVm.connect((ui.currentServer?.id) ?: "us-nyc-1")
-                        },
-                        onPickLocation = { nav.navigate(Dest.Locations.route) }
+                        onPowerClick = { homeVm.toggleConnection() },
+                        onConfigLoad = { uri -> homeVm.loadConfig(uri) },
+                        onSettingsClick = { nav.navigate(Dest.Settings.route) },
+                        onPremiumClick = { /* TODO: Navigate to premium screen */ }
                     )
                 }
                 composable(Dest.Locations.route) {
