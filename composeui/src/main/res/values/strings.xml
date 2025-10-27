@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_title">SECRET VPN</string>
+    <string name="action_load_config_title">Загрузить конфиг</string>
+    <string name="action_load_config_sub">Подключите ваш секретную конфигурацию, чтобы подключится к эксклюзивному серверу</string>
+    <string name="server_title">Сервер</string>
+    <string name="server_sub">Надежный провайдер работающий на секртному порту</string>
+    <string name="msg_need_config">Перед включением сначала загрузите конфиг!</string>
+    <string name="msg_config_loaded">Конфиг подклёчен!</string>
+    <string name="status_protected">Protected</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_premium">Premium</string>
+    <string name="status_connecting">Подключение…</string>
+    <string name="status_connected">Подключено</string>
+    <string name="status_disconnected">Отключено</string>
+    <string name="country_unknown">?</string>
+</resources>
+

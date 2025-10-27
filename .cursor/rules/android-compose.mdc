@@ -1,0 +1,46 @@
+---
+description: Правила Android Jetpack Compose под Figma MCP для Galggg
+globs:
+  - "composeui/**"
+  - "app/**"
+alwaysApply: true
+---
+
+# Цели
+- Пишем **только Kotlin/Jetpack Compose (Material3)**, без XML и без AppCompat-вью.
+- Визуальная точность: максимально соответствуем Figma, но при конфликте — приоритет токенам/DS.
+- Любой новый UI-компонент = переиспользуемый @Composable с параметрами + Modifier.
+
+# Стиль и архитектура UI
+- Файлы экранов: `composeui/src/main/kotlin/.../ui/screens/<ScreenName>Screen.kt`
+- Файлы атомарных компонентов: `.../ui/components/<ComponentName>.kt`
+- Параметр `modifier: Modifier = Modifier` — всегда в сигнатуре публичных Composable.
+- Состояние **поднимаем** (state hoisting); UI-компоненты не знают о репозиториях/вьюмоделях.
+- Слотовые API предпочтительнее лишних булевых флагов.
+- Лэйаут: `Row/Column/Box`, `Lazy*` для списков; избегаем чрезмерной вложенности.
+- Текст/кнопки/инпуты — из Material3; не городим свой шрифт/палитру мимо `MaterialTheme`.
+
+# Темизация и токены
+- Используем `MaterialTheme.colorScheme`, `MaterialTheme.typography`, `MaterialTheme.shapes`.
+- Любые цвета/спейсинги/радиусы — **из токенов** (см. правила figma-mcp.mdc про выгрузку).
+- Нельзя хардкодить `Color(0xFF...)` или `Dp(...)` — только через маппинг токенов.
+
+# Изображения и иконки
+- Векторные — в `res/drawable` (SVG → VectorDrawable), растровые — в `drawable-nodpi`.
+- В коде — `painterResource(...)`. Сетевые — через Coil (`AsyncImage`) только если дизайн таков.
+
+# Доступность
+- Всегда заполняем `contentDescription`, минимальный тач-таргет, контраст ≥ WCAG AA.
+- Поддерживаем динамический размер шрифта (не фиксируем `fontSize`).
+
+# Качество и превью
+- Для каждого публичного компонента — `@Preview` (light/dark), `showBackground = true`.
+- Не вызывать блокирующие операции в Compose; только чистые вычисления и эффекты (`LaunchedEffect`).
+
+# Запрещено
+- XML layout, AppCompat Widgets, хардкод стилей, inline-стили, глобальные singletons в UI.
+
+# Чек-лист перед коммитом
+- [ ] Превью собираются.
+- [ ] Нет хардкода цветов/размеров — только токены.
+- [ ] Нейминг и структура соответствуют путям выше.

@@ -21,3 +21,48 @@ Commits in history are short and topic-focused; keep messages imperative and und
 
 ## Tools & External Assets
 Run `tools/fetch-tun2socks.ps1` to refresh the bundled tun2socks binary and manually update sing-box assets as needed; commit the resulting files only after verifying licensing. Never expose production secrets—replace provisional tokens in `app/build.gradle` with environment-specific values before release tagging.
+# AGENTS.md — Galggg (UI Compose интеграция из Figma)
+
+## Цель
+Быстро и точно перенести экраны из Figma в Android Jetpack Compose (Material3) в модуле `composeui`, соблюдая токены и компоненты дизайн‑системы.
+
+## Как запускать проект
+- Сборка: `./gradlew :app:assembleDebug`
+- Compose‑модуль: `./gradlew :composeui:assemble`
+- Минимум: Android Gradle Plugin/Compose версии — см. `build.gradle`, использовать BOM.
+
+## Структура
+- `composeui/src/main/kotlin/.../ui/screens` — экраны
+- `composeui/.../ui/components` — атомарные/композитные компоненты
+- Тема/токены: `composeui/.../ui/theme/*`
+
+## Правила UI (кратко)
+- Только Kotlin/Compose (Material3), без XML.
+- Никакого хардкода цветов/размеров — только токены.
+- Компоненты переиспользуемые, с `modifier` и превью.
+- Доступность: `contentDescription`, контраст ≥ AA, тач‑таргет.
+
+## Интеграция Figma MCP
+- Editor: Cursor с Figma MCP (remote или local).
+- Рабочий флоу:
+  1) `get_design_context` по ссылке на фрейм/слой
+  2) при необходимости `get_metadata` → сузить область
+  3) `get_screenshot` для эталона
+  4) `get_variable_defs` (локально) → маппинг на тему
+  5) экспорт ассетов → `res/drawable*`
+- Переводим структуру MCP → Jetpack Compose/Material3.
+
+## Definition of Done (для PR)
+- 1:1 по макету (сверка с MCP‑скриншотом)
+- Используются токены/компоненты DS, нет дублирования
+- Есть превью и базовый UI‑тест
+- Нет хардкода, линтеры зелёные
+
+## Команды
+- Сборка: `./gradlew assemble`
+- UI‑тесты (если есть): `./gradlew :composeui:connectedAndroidTest`
+
+## Мини‑агенты
+- **Compose Implementer**: переводит фрейм → Composable + превью.
+- **Figma Bridge**: тянет `get_design_context`, `get_screenshot`, `get_variable_defs`, экспортирует ассеты.
+- **Visual QA**: сравнивает превью с MCP‑скриншотом, фиксит отступы.

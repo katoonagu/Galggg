@@ -1,14 +1,21 @@
 package com.galggg.ui.screens
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.Divider
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -29,7 +36,10 @@ fun SettingsScreen(
         Spacer(Modifier.height(16.dp))
         Text("Protocol", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        SegmentedButton(protocol, onProtocolChange)
+        ProtocolSelector(
+            selected = protocol,
+            onChange = onProtocolChange
+        )
         Spacer(Modifier.height(16.dp))
         SettingToggle("Kill Switch", killSwitch, onKillSwitchChange)
         SettingToggle("Auto-connect on launch", autoConnect, onAutoConnectChange)
@@ -47,20 +57,18 @@ private fun SettingToggle(title: String, checked: Boolean, onChange: (Boolean) -
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SegmentedButton(selected: Protocol, onSelected: (Protocol) -> Unit) {
+fun ProtocolSelector(
+    selected: Protocol,
+    onChange: (Protocol) -> Unit
+) {
     val items = listOf(Protocol.WIREGUARD, Protocol.OPENVPN, Protocol.SHADOWSOCKS)
     SingleChoiceSegmentedButtonRow {
-        items.forEachIndexed { index, p ->
-            val position = when (index) {
-                0 -> SegmentedButtonDefaults.ItemPosition.Start
-                items.lastIndex -> SegmentedButtonDefaults.ItemPosition.End
-                else -> SegmentedButtonDefaults.ItemPosition.Middle
-            }
+        items.forEachIndexed { index, protocol ->
             SegmentedButton(
-                shape = SegmentedButtonDefaults.shape(position = position),
-                selected = p == selected,
-                onClick = { onSelected(p) },
-                label = { Text(p.name) }
+                selected = protocol == selected,
+                onClick = { onChange(protocol) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = items.size),
+                label = { Text(protocol.name) }
             )
         }
     }

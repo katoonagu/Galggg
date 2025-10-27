@@ -3,10 +3,6 @@ package com.galggg.ui.bridge;
 import com.galggg.ui.data.InMemoryVpnController;
 import com.galggg.ui.data.VpnController;
 
-public interface VpnControllerFactory {
-    VpnController create();
-}
-
 public final class VpnControllerProvider {
     private static final java.util.concurrent.atomic.AtomicReference<java.util.function.Supplier<VpnController>> holder =
             new java.util.concurrent.atomic.AtomicReference<>(InMemoryVpnController::new);

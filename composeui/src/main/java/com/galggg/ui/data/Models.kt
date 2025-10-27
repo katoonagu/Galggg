@@ -22,6 +22,13 @@ enum class ConnectionState {
     DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING, ERROR
 }
 
+enum class ConfigState {
+    NOT_LOADED,      // No config file chosen
+    LOADING,         // File picker active
+    LOADED,          // Config successfully loaded
+    ERROR            // Failed to load/parse config
+}
+
 interface VpnController {
     val connectionState: Flow<ConnectionState>
     val currentServer: Flow<Server?>
