@@ -1,13 +1,11 @@
-﻿<resources>
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
     <string name="app_name">Secret VPN</string>
     <string name="home_section_title">Home</string>
     <string name="status_default">Tap connect to begin</string>
     <string name="connect_button">Connect</string>
-
-    <!-- Config Upload -->
     <string name="config_upload_title">Загрузить конфиг</string>
-    <string name="config_upload_sub">
-        Подключите вашу секретную конфигурацию, чтобы подключиться к эксклюзивному серверу
-    </string>
+    <string name="config_upload_sub">Подключите вашу секретную конфигурацию, чтобы подключиться к эксклюзивному серверу</string>
     <string name="cd_config_icon">Иконка загрузки конфига</string>
+    <string name="warning_no_config">Перед включением сначала загрузите конфиг!</string>
 </resources>

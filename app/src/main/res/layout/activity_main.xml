@@ -35,11 +35,9 @@
                     android:id="@+id/homeTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
                     android:paddingBottom="@dimen/space_s"
                     android:text="@string/home_section_title"
-                    android:textColor="@color/text_primary"
-                    android:textSize="24sp" />
+                    style="@style/TextTitleHome" />
 
                 <TextView
                     android:id="@+id/tvStatus"
@@ -48,7 +46,8 @@
                     android:paddingTop="@dimen/space_s"
                     android:text="@string/status_default"
                     android:textColor="@color/text_primary"
-                    android:textSize="18sp" />
+                    android:textSize="18sp"
+                    android:fontFamily="@font/garet_book" />
 
                 <Button
                     android:id="@+id/btnConnect"
@@ -59,7 +58,8 @@
                     android:text="@string/connect_button"
                     android:textAllCaps="false"
                     android:textColor="@color/text_primary"
-                    android:textSize="16sp" />
+                    android:textSize="16sp"
+                    android:fontFamily="@font/garet_book" />
 
                 <ProgressBar
                     android:id="@+id/progress"

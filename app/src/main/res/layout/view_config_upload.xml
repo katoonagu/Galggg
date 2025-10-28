@@ -31,10 +31,8 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/space_m"
-            android:fontFamily="@font/garet_book"
             android:text="@string/config_upload_title"
-            android:textColor="@color/text_primary"
-            android:textSize="@dimen/config_title_text"
+            style="@style/TextConfigTitle"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toEndOf="@id/configIcon"
             app:layout_constraintTop_toTopOf="@id/configIcon" />
@@ -44,10 +42,8 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_xs"
-            android:fontFamily="@font/garet_book"
             android:text="@string/config_upload_sub"
-            android:textColor="@color/text_secondary"
-            android:textSize="@dimen/config_sub_text"
+            style="@style/TextConfigSub"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="@id/configTitle"
             app:layout_constraintTop_toBottomOf="@id/configTitle" />

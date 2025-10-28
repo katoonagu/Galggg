@@ -7,30 +7,39 @@
     android:layout_height="match_parent"
     android:background="@color/page_bg">
 
-    <!-- Заголовок (если нужен) -->
     <TextView
         android:id="@+id/homeTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="@dimen/space_l"
-        android:layout_marginTop="@dimen/space_l"
         android:text="@string/app_name"
-        android:textColor="@color/text_primary"
-        android:textSize="20sp"
-        android:textStyle="bold"
+        style="@style/TextTitleHome"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/configUpload"
+        app:layout_constraintVertical_bias="0.3" />
 
-    <!-- Карточка "Загрузить конфиг" -->
     <include
         android:id="@+id/configUpload"
         layout="@layout/view_config_upload"
-        android:layout_marginStart="@dimen/space_l"
-        android:layout_marginTop="@dimen/space_l"
-        android:layout_marginEnd="@dimen/space_l"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/homeTitle" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/homeTitle"
+        app:layout_constraintBottom_toTopOf="@id/vpnButton"
+        app:layout_constraintVertical_bias="0.35" />
 
-    <!-- Ниже позже добавим Power-кнопку и остальные блоки -->
+    <ImageView
+        android:id="@+id/vpnButton"
+        android:layout_width="@dimen/vpn_button_size"
+        android:layout_height="@dimen/vpn_button_size"
+        android:layout_marginTop="@dimen/space_l"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/configUpload"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:srcCompat="@drawable/ic_button_vpn"
+        app:tint="@null" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

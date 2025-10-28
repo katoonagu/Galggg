@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="TextTitleHome">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:fontFamily">@font/bebasneue_regular</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextConfigTitle">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">@dimen/config_title_text</item>
+        <item name="android:fontFamily">@font/garet_book</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextConfigSub">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">@dimen/config_sub_text</item>
+        <item name="android:fontFamily">@font/garet_book</item>
+    </style>
+</resources>

@@ -1,15 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Базовые отступы -->
     <dimen name="space_xs">8dp</dimen>
     <dimen name="space_s">12dp</dimen>
     <dimen name="space_m">16dp</dimen>
     <dimen name="space_l">24dp</dimen>
-
-    <!-- Карточка "Загрузить конфиг" -->
     <dimen name="config_card_corner">34dp</dimen>
     <dimen name="config_icon_size">48dp</dimen>
-    <dimen name="config_title_text">29sp</dimen>
-    <dimen name="config_sub_text">14sp</dimen>
+    <dimen name="config_title_text">32sp</dimen>
+    <dimen name="config_sub_text">15sp</dimen>
+    <dimen name="vpn_button_size">251dp</dimen>
 </resources>
-
