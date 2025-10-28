@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Secret VPN</string>
     <string name="home_section_title">Home</string>
@@ -8,4 +8,6 @@
     <string name="config_upload_sub">Подключите вашу секретную конфигурацию, чтобы подключиться к эксклюзивному серверу</string>
     <string name="cd_config_icon">Иконка загрузки конфига</string>
     <string name="warning_no_config">Перед включением сначала загрузите конфиг!</string>
+    <string name="permission_required_to_load_config">Нужно дать разрешение для загрузки конфига!</string>
+    <string name="config_loaded">Конфиг подключен!</string>
 </resources>
