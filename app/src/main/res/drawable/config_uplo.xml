@@ -10,6 +10,6 @@
             android:pathData="M34 0H347C365.778 0 381 15.222 381 34V140C381 158.778 365.778 174 347 174H34C15.222 174 0 158.778 0 140V34C0 15.222 15.222 0 34 0Z" />
         <path
             android:pathData="M0 0V174H381V0"
-            android:fillColor="@color/config_card_background" />
+            android:fillColor="@color/config_card_bg" />
     </group>
 </vector>

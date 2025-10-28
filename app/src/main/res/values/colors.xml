@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Background Colors -->
-    <color name="background_primary">#181A1E</color>
-    <color name="config_card_background">#202128</color>
-    
-    <!-- Text Colors -->
-    <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#B0B0B0</color>
-    
-    <!-- Icon Background -->
-    <color name="icon_background">#7386AF</color>
-    
-    <!-- Button Colors -->
-    <color name="button_background">#2D3035</color>
+    <!-- Цвет фона страницы -->
+    <color name="page_bg">#181A1E</color>
+
+    <!-- Фон карточки "Загрузить конфиг" (по дизайну Figma) -->
+    <color name="config_card_bg">#202128</color>
+
+    <!-- Текстовые цвета -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#C0C5CE</color>
 </resources>
 
