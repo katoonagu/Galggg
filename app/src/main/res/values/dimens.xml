@@ -9,4 +9,8 @@
     <dimen name="config_title_text">32sp</dimen>
     <dimen name="config_sub_text">15sp</dimen>
     <dimen name="vpn_button_size">251dp</dimen>
+    <dimen name="bottom_nav_height">76dp</dimen>
+    <dimen name="bottom_nav_corner">18dp</dimen>
+    <dimen name="bottom_nav_padding_h">20dp</dimen>
+    <dimen name="bottom_nav_padding_v">12dp</dimen>
 </resources>
