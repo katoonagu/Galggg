@@ -4,7 +4,7 @@
     android:id="@+id/home_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#181A1E">
+    android:background="@color/background_primary">
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/home_scroll"
@@ -38,8 +38,8 @@
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp"
                     android:text="@string/home_section_title"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="24sp" />
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/home_title_text_size" />
 
                 <TextView
                     android:id="@+id/tvStatus"
@@ -47,19 +47,19 @@
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
                     android:text="@string/status_default"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="18sp" />
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/home_status_text_size" />
 
                 <Button
                     android:id="@+id/btnConnect"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
-                    android:backgroundTint="#FF2D3035"
+                    android:backgroundTint="@color/button_background"
                     android:text="@string/connect_button"
                     android:textAllCaps="false"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="16sp" />
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/home_button_text_size" />
 
                 <ProgressBar
                     android:id="@+id/progress"
@@ -72,9 +72,9 @@
 
                 <FrameLayout
                     android:id="@+id/btnConfigUpload"
-                    android:layout_width="399dp"
-                    android:layout_height="162dp"
-                    android:layout_marginTop="20dp"
+                    android:layout_width="@dimen/config_card_width"
+                    android:layout_height="@dimen/config_card_height"
+                    android:layout_marginTop="@dimen/config_card_margin_top"
                     android:layout_gravity="center_horizontal"
                     android:background="@drawable/config_uplo"
                     android:clickable="true"
@@ -83,18 +83,15 @@
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:paddingStart="24dp"
-                        android:paddingTop="24dp"
-                        android:paddingEnd="24dp"
-                        android:paddingBottom="24dp">
+                        android:padding="@dimen/config_card_padding">
 
                         <ImageView
                             android:id="@+id/imageConfigIcon"
-                            android:layout_width="41dp"
-                            android:layout_height="37dp"
-                            android:layout_marginEnd="16dp"
+                            android:layout_width="@dimen/config_icon_width"
+                            android:layout_height="@dimen/config_icon_height"
+                            android:layout_marginEnd="@dimen/config_icon_margin_end"
                             android:background="@drawable/bg_config_icon"
-                            android:padding="4dp"
+                            android:padding="@dimen/config_icon_padding"
                             android:contentDescription="@string/config_upload_icon_content_desc"
                             android:scaleType="centerInside"
                             android:src="@drawable/config"
@@ -109,8 +106,8 @@
                             android:fontFamily="@font/garet"
                             android:textFontWeight="300"
                             android:text="@string/config_upload_title"
-                            android:textColor="#FFFFFFFF"
-                            android:textSize="32sp"
+                            android:textColor="@color/text_primary"
+                            android:textSize="@dimen/config_title_text_size"
                             android:textStyle="normal"
                             app:layout_constraintEnd_toEndOf="parent"
                             app:layout_constraintStart_toEndOf="@id/imageConfigIcon"
@@ -120,12 +117,12 @@
                             android:id="@+id/configUploadDescription"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="@dimen/config_description_margin_top"
                             android:fontFamily="@font/garet"
                             android:textFontWeight="300"
                             android:text="@string/config_upload_description"
-                            android:textColor="#FFFFFFFF"
-                            android:textSize="15sp"
+                            android:textColor="@color/text_primary"
+                            android:textSize="@dimen/config_description_text_size"
                             android:textStyle="normal"
                             app:layout_constraintEnd_toEndOf="@id/configUploadTitle"
                             app:layout_constraintStart_toStartOf="@id/configUploadTitle"
