@@ -14,3 +14,4 @@ storeFile=C:/keys/galggg-release.jks
 storePassword=YourStorePass
 keyAlias=galggg-release
 keyPassword=YourKeyPass
+keystore.properties
