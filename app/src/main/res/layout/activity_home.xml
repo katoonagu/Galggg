@@ -18,17 +18,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <include
-        android:id="@+id/configUpload"
-        layout="@layout/view_config_upload"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/space_l"
-        app:layout_constraintTop_toBottomOf="@id/homeTitle"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/vpnButton" />
-
     <ImageView
         android:id="@+id/vpnButton"
         android:layout_width="@dimen/vpn_button_size"
@@ -38,12 +27,10 @@
         android:scaleType="centerInside"
         app:srcCompat="@drawable/ic_button_vpn"
         app:tint="@null"
-        app:layout_constraintTop_toBottomOf="@id/configUpload"
+        app:layout_constraintTop_toBottomOf="@id/homeTitle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/statusText"
-        app:layout_constraintVertical_chainStyle="packed"
-        app:layout_constraintVertical_bias="0.35" />
+        app:layout_constraintBottom_toTopOf="@id/statusText" />
 
     <TextView
         android:id="@+id/statusText"
@@ -54,6 +41,17 @@
         android:textColor="@color/warning_text"
         android:textSize="14sp"
         app:layout_constraintTop_toBottomOf="@id/vpnButton"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/configUpload" />
+
+    <include
+        android:id="@+id/configUpload"
+        layout="@layout/view_config_upload"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_l"
+        app:layout_constraintTop_toBottomOf="@id/statusText"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toTopOf="@id/bottomNav" />

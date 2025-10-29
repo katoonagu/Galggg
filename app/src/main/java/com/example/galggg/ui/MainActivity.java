@@ -10,17 +10,18 @@ import android.os.Build;
 import android.os.Bundle;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.ColorRes;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
-import com.google.android.material.card.MaterialCardView;
-
 import com.example.galggg.R;
+import com.example.galggg.vpn.GalgggVpnService;
+import com.google.android.material.card.MaterialCardView;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
         String saved = prefs.getString("config_uri", null);
         if (saved != null) {
             configUri = Uri.parse(saved);
+            showStatus(R.string.config_loaded, R.color.success_text);
         }
 
         requestPermissionLauncher = registerForActivityResult(
@@ -56,7 +58,7 @@ public class MainActivity extends AppCompatActivity {
                     if (granted) {
                         openImagePicker();
                     } else {
-                        statusText.setText(R.string.permission_required_to_load_config);
+                        showStatus(R.string.permission_required_to_load_config, R.color.warning_text);
                     }
                 }
         );
@@ -67,24 +69,26 @@ public class MainActivity extends AppCompatActivity {
                     if (uri != null) {
                         configUri = uri;
                         prefs.edit().putString("config_uri", uri.toString()).apply();
-                        statusText.setText(R.string.config_loaded);
-
-                        // TODO: здесь вызови свою функцию обработки импортированного конфига
-                        // например: ExistingConfig.importFromUri(this, uri);
+                        showStatus(R.string.config_loaded, R.color.success_text);
+                        // TODO: hook into actual config processing if/when it becomes available.
                     }
                 }
         );
 
-        configUploadCard.setOnClickListener(v -> startConfigFlow());
+        if (configUploadCard != null) {
+            configUploadCard.setOnClickListener(v -> startConfigFlow());
+        }
 
-        vpnButton.setOnClickListener(v -> {
-            if (!isConfigLoaded()) {
-                statusText.setText(R.string.warning_no_config);
-                startConfigFlow();
-            } else {
-                toggleVpn();
-            }
-        });
+        if (vpnButton != null) {
+            vpnButton.setOnClickListener(v -> {
+                if (!isConfigLoaded()) {
+                    showStatus(R.string.warning_no_config, R.color.warning_text);
+                    startConfigFlow();
+                } else {
+                    toggleVpn();
+                }
+            });
+        }
     }
 
     private boolean isConfigLoaded() {
@@ -92,14 +96,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startConfigFlow() {
-        final String perm = (Build.VERSION.SDK_INT >= 33)
+        final String permission = (Build.VERSION.SDK_INT >= 33)
                 ? Manifest.permission.READ_MEDIA_IMAGES
                 : Manifest.permission.READ_EXTERNAL_STORAGE;
 
-        if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
             openImagePicker();
         } else {
-            requestPermissionLauncher.launch(perm);
+            requestPermissionLauncher.launch(permission);
         }
     }
 
@@ -108,9 +112,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void toggleVpn() {
-        Intent prep = VpnService.prepare(this);
-        if (prep != null) {
-            startActivityForResult(prep, REQ_VPN_PREP);
+        Intent prepareIntent = VpnService.prepare(this);
+        if (prepareIntent != null) {
+            startActivityForResult(prepareIntent, REQ_VPN_PREP);
         } else {
             startVpnOrToggle();
         }
@@ -125,13 +129,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startVpnOrToggle() {
-        // TODO: ЗДЕСЬ подключи СУЩЕСТВУЮЩИЕ функции старта/стопа VPN
-        // Пример через сервис (замени YourVpnService и логику isRunning на свои):
-        // Intent i = new Intent(this, YourVpnService.class)
-        //        .setAction("TOGGLE")
-        //        .setData(configUri);
-        // if (YourVpnService.isRunning()) stopService(i); else startForegroundService(i);
+        boolean active = GalgggVpnService.isActive();
+        Intent svc = new Intent(this, GalgggVpnService.class);
+        if (active) {
+            svc.setAction(GalgggVpnService.ACTION_STOP);
+            startService(svc);
+        } else {
+            svc.setAction(GalgggVpnService.ACTION_START);
+            if (configUri != null) {
+                svc.setData(configUri);
+            }
+            ContextCompat.startForegroundService(this, svc);
+        }
+    }
 
-        Toast.makeText(this, "TODO: start/stop VPN with config: " + configUri, Toast.LENGTH_SHORT).show();
+    private void showStatus(@StringRes int messageId, @ColorRes int colorId) {
+        if (statusText != null) {
+            statusText.setText(messageId);
+            statusText.setTextColor(ContextCompat.getColor(this, colorId));
+        }
     }
 }

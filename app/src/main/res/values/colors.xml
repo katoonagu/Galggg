@@ -1,8 +1,9 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="page_bg">#181A1E</color>
     <color name="config_card_bg">#202128</color>
     <color name="text_primary">#FFFFFFFF</color>
     <color name="text_secondary">#C0C5CE</color>
     <color name="warning_text">#FB9E9E</color>
+    <color name="success_text">#9EFBE1</color>
 </resources>
