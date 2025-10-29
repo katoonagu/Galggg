@@ -10,3 +10,7 @@ signing/
 *.jks
 
 .config/
+storeFile=C:/keys/galggg-release.jks
+storePassword=YourStorePass
+keyAlias=galggg-release
+keyPassword=YourKeyPass
