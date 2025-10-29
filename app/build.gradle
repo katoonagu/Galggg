@@ -1,5 +1,14 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id "com.android.application" version "8.6.1"
+}
+
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
 }
 
 android {
@@ -10,8 +19,8 @@ android {
         applicationId "com.example.galggg"
         minSdk 24
         targetSdk 34
-        versionCode 10012
-        versionName "1.0.12"
+        versionCode 100
+        versionName "0.1.0"
 
         buildConfigField "String", "PROVISION_HOST", "\"vpnonee.com\""
         buildConfigField "String", "PROVISION_URL", "\"http://vpnonee.com:8081\""
@@ -19,8 +28,29 @@ android {
         buildConfigField "String", "PROVISION_TOKEN", "\"ptk_A3Rz5Zr86mYb-9wQ4pJc2Vt7Xg0La1Nf5Hh3Qk8R2sD6Ue0\""
         buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
         buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
+    }
 
-        ndk { abiFilters "arm64-v8a", "x86_64" }
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                def storeFilePath = keystoreProps.getProperty('storeFile')
+                if (storeFilePath) {
+                    storeFile file(storeFilePath)
+                }
+                def storePasswordValue = keystoreProps.getProperty('storePassword')
+                if (storePasswordValue) {
+                    storePassword storePasswordValue
+                }
+                def keyAliasValue = keystoreProps.getProperty('keyAlias')
+                if (keyAliasValue) {
+                    keyAlias keyAliasValue
+                }
+                def keyPasswordValue = keystoreProps.getProperty('keyPassword')
+                if (keyPasswordValue) {
+                    keyPassword keyPasswordValue
+                }
+            }
+        }
     }
 
     buildFeatures {
@@ -30,19 +60,22 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
-
-            packagingOptions {
-                jniLibs { useLegacyPackaging = true }
+            // minifyEnabled true
+            // shrinkResources true
+            if (keystorePropsFile.exists() && keystoreProps.getProperty('storeFile')) {
+                signingConfig signingConfigs.release
             }
-
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
-        debug {
-            packagingOptions {
-                jniLibs { useLegacyPackaging = true }
-            }
+        debug {}
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a", "x86_64"
+            universalApk true
         }
     }
 
