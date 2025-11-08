@@ -28,6 +28,11 @@ android {
         buildConfigField "String", "PROVISION_TOKEN", "\"ptk_A3Rz5Zr86mYb-9wQ4pJc2Vt7Xg0La1Nf5Hh3Qk8R2sD6Ue0\""
         buildConfigField "String", "TG_BOT_TOKEN", "\"8444896156:AAHn2ATVHXs1JN9WuARqSTW4pSaYgzu2X0M\""
         buildConfigField "String", "TG_CHAT_ID", "\"462656683\""
+
+        // Собираем под 32-бит ARM. Добавь arm64 при необходимости в отдельный билд.
+        ndk {
+            abiFilters "armeabi-v7a"
+        }
     }
 
     signingConfigs {
@@ -70,12 +75,21 @@ android {
         debug {}
     }
 
+    packagingOptions {
+        jniLibs {
+            // .so извлекаются на ФС (nativeLibraryDir), чтобы их можно было exec'нуть
+            useLegacyPackaging = true
+            // На 32-битных сборках выбрасываем arm64-only lib от AndroidX Graphics (если просочится)
+            excludes += ["**/arm64-v8a/libandroidx.graphics.path.so", "**/x86_64/libandroidx.graphics.path.so"]
+        }
+    }
+
     splits {
         abi {
             enable true
             reset()
-            include "arm64-v8a", "armeabi-v7a", "x86_64"
-            universalApk true
+            include "armeabi-v7a"
+            universalApk false
         }
     }
 
